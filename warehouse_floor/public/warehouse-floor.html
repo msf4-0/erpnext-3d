@@ -1,0 +1,1003 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>ERPNext Warehouse Floor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: title row, four KPI cells, one control row, then the 3D line beside an inspector (stacked on phones). */
+:root {
+  --bg: #eef1f5; --panel: #fbfcfd; --fg: #18202c; --muted: #5b687b; --line: #d3dae4;
+  --stage: #e4e9f0; --floor: #d6dde8; --zone: #c4cedc; --plate: #b4c0d1; --accent: #2b4fd8;
+  --good: #17936c; --warn: #c98200; --bad: #d13f37; --neutral: #7886a0;
+  --machine: #6f7f99; --machine2: #53627b; --crate: #b58a4a; --pegoff: #a3b0c3;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --cond: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e131a; --panel: #151c26; --fg: #e5eaf2; --muted: #8f9db3; --line: #263142;
+    --stage: #101722; --floor: #1b2535; --zone: #243046; --plate: #34425b; --accent: #8aa4ff;
+    --good: #33c28e; --warn: #efaa33; --bad: #ff6d63; --neutral: #8190ab;
+    --machine: #7d8da9; --machine2: #5f6f8b; --crate: #d0a35c; --pegoff: #3b4a63;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e131a; --panel: #151c26; --fg: #e5eaf2; --muted: #8f9db3; --line: #263142;
+  --stage: #101722; --floor: #1b2535; --zone: #243046; --plate: #34425b; --accent: #8aa4ff;
+  --good: #33c28e; --warn: #efaa33; --bad: #ff6d63; --neutral: #8190ab;
+  --machine: #7d8da9; --machine2: #5f6f8b; --crate: #d0a35c; --pegoff: #3b4a63;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45;
+  padding-block: 20px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; }
+h1 { font-family: var(--cond); font-weight: 600; font-size: 26px; letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.sub { margin: 2px 0 0; color: var(--muted); max-width: 70ch; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); padding: 3px 8px; border-radius: 4px; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--panel); }
+.kpi { padding: 12px 16px; border-left: 1px solid var(--line); min-width: 0; }
+.kpi:first-child { border-left: 0; }
+.kpi[data-sev="warn"] { box-shadow: inset 3px 0 0 var(--warn); }
+.kpi[data-sev="bad"] { box-shadow: inset 3px 0 0 var(--bad); }
+.k-label { display: block; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.k-val { display: block; font-family: var(--cond); font-weight: 600; font-size: 28px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.k-note { display: block; color: var(--muted); font-size: 12px; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding-block: 10px; border-block: 1px solid var(--line); }
+.ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ctl > label { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+select { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-width: 230px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.stage-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.stage { position: relative; height: clamp(380px, 60vh, 640px); background: var(--stage); border: 1px solid var(--line); overflow: hidden; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.stage canvas:active { cursor: grabbing; }
+#labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lbl { position: absolute; left: 0; top: 0; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); padding: 1px 5px; border-radius: 3px; will-change: transform; }
+.lbl.step { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 500; }
+.lbl.on { border-color: var(--accent); }
+.tip { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; min-width: 180px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18); will-change: transform; }
+.tip b { display: block; font-family: var(--mono); font-weight: 500; }
+.tip > span { display: block; color: var(--muted); margin-bottom: 6px; }
+.tip dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; }
+.tip dt { color: var(--muted); }
+.tip dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend b { font-weight: 500; color: var(--fg); }
+.sw { width: 10px; height: 10px; display: inline-block; }
+.hint { flex-basis: 100%; }
+
+.inspector { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.inspector h2 { font-family: var(--mono); font-weight: 500; font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.zname { color: var(--muted); font-size: 12px; }
+.pill { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); white-space: nowrap; }
+.pill.good { --c: var(--good); } .pill.warn { --c: var(--warn); } .pill.bad { --c: var(--bad); } .pill.neutral { --c: var(--neutral); }
+.big { font-family: var(--cond); font-weight: 600; font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums; }
+.big small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 6px; }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--c); }
+.note { color: var(--muted); font-size: 12px; margin: 0; }
+dl.kv { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+h3 { margin: 0; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.tbl { display: flex; flex-direction: column; margin-top: 6px; }
+.tbl > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tbl .code { font-family: var(--mono); font-size: 12px; }
+.tbl .nm { color: var(--muted); font-size: 12px; grid-column: 1; }
+.tbl .q { font-family: var(--mono); font-variant-numeric: tabular-nums; grid-row: 1; grid-column: 2; text-align: right; font-size: 12px; }
+.mv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.mv .t { font-size: 13px; }
+.mv .a { color: var(--muted); font-size: 12px; grid-column: 1; }
+.mv .d { font-family: var(--mono); font-variant-numeric: tabular-nums; grid-row: 1; grid-column: 2; text-align: right; }
+.mv .d.p { color: var(--good); } .mv .d.m { color: var(--bad); }
+.route { font-family: var(--mono); font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; overflow-wrap: anywhere; }
+.empty h2 { font-family: var(--cond); font-size: 20px; font-weight: 600; }
+.steps { display: flex; flex-direction: column; margin-top: 6px; }
+.steps > div { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 0 8px; padding: 6px 0; border-top: 1px solid var(--line); align-items: center; }
+.steps .n { font-family: var(--mono); color: var(--muted); }
+.steps .op { font-size: 13px; }
+.steps .who { grid-column: 2; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.steps .st { grid-column: 3; grid-row: 1 / span 2; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--c); margin-right: 5px; }
+.dot.good { --c: var(--good); } .dot.warn { --c: var(--warn); } .dot.bad { --c: var(--bad); } .dot.neutral { --c: var(--neutral); }
+
+.items { display: flex; flex-direction: column; margin-top: 6px; max-height: 360px; overflow: auto; }
+.it { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 0 10px; padding: 7px 0; border-top: 1px solid var(--line); align-items: center; }
+.it .sw { width: 10px; height: 10px; border-radius: 2px; }
+.it .code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.it .nm { grid-column: 2; color: var(--muted); font-size: 12px; }
+.it .q { grid-column: 3; grid-row: 1; text-align: right; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.it .v { grid-column: 3; grid-row: 2; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wh { display: flex; flex-direction: column; }
+.wh .row h3 { color: var(--fg); }
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; }
+.it[data-sel] { cursor: pointer; } .it[data-sel]:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.lbl.item { border-left: 3px solid var(--ic, var(--accent)); }
+
+@media (max-width: 960px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi:nth-child(3) { border-left: 0; }
+  .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .kpi:last-child { grid-column: 1 / -1; border-left: 0; }
+}
+@media (max-width: 520px) {
+  .stage { height: 360px; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>ERPNext Warehouse Floor</h1>
+      <p class="sub">Stores and Work In Progress are merged into one back row, a line of bars with one bar per item type. Two workbenches and Finished Goods sit in front, in the order a job moves through them.</p>
+    </div>
+    <span class="tag" id="tagSrc">Prototype · sample data</span>
+  </header>
+
+  <section class="kpis" aria-label="Summary">
+    <div class="kpi"><span class="k-label">Workbenches</span><span class="k-val" id="kWs">0</span><span class="k-note" id="kWsNote"></span></div>
+    <div class="kpi"><span class="k-label">Utilization</span><span class="k-val" id="kUtil">0%</span><span class="k-note" id="kUtilNote"></span></div>
+    <div class="kpi" id="kpiQ"><span class="k-label">Queued job cards</span><span class="k-val" id="kQ">0</span><span class="k-note" id="kQNote"></span></div>
+    <div class="kpi" id="kpiDown"><span class="k-label">Down</span><span class="k-val" id="kDown">0</span><span class="k-note">workbenches stopped</span></div>
+    <div class="kpi" id="kpiStock"><span class="k-label">Stock health</span><span class="k-val" id="kStock">0</span><span class="k-note" id="kStockNote"></span></div>
+  </section>
+
+  <section class="controls" aria-label="Controls">
+    <label class="switch"><input type="checkbox" id="showRoute" checked> Show routing path</label>
+    <div class="ctl">
+      <label for="pick">Inspect</label>
+      <select id="pick"><option value="">Choose item</option></select>
+    </div>
+    <div class="ctl"><button type="button" class="btn" id="btnReset">Reset view</button></div>
+    <label class="switch"><input type="checkbox" id="live"> Live updates</label>
+  </section>
+
+  <div class="main">
+    <div class="stage-col">
+      <div class="stage" id="stage">
+        <canvas id="cv" role="img" aria-label="3D view of a production line: a merged Stores and Work In Progress row with one bar per item, then Workbench 1, Workbench 2 and Finished Goods. Use the Inspect menu to choose an item with the keyboard."></canvas>
+        <div id="labels"></div>
+        <div class="tip" id="tip" hidden></div>
+        <div class="nogl" id="nogl" hidden>This browser could not start WebGL, so the 3D view cannot be drawn here. The summary and the Inspect menu still work.</div>
+      </div>
+      <div class="legend">
+        <b>Workbench</b>
+        <span><i class="sw" style="background:var(--good)"></i>Running</span>
+        <span><i class="sw" style="background:var(--neutral)"></i>Idle</span>
+        <span><i class="sw" style="background:var(--warn)"></i>Waiting (jobs queued, none running)</span>
+        <span><i class="sw" style="background:var(--bad)"></i>Down</span>
+        <b>Warehouse level (base strip)</b>
+        <span><i class="sw" style="background:var(--good)"></i>Healthy</span>
+        <span><i class="sw" style="background:var(--warn)"></i>Low</span>
+        <span><i class="sw" style="background:var(--bad)"></i>Over capacity</span>
+        <b>Item bar</b><span><i class="sw" style="background:var(--accent)"></i>Solid lower part: in Stores</span><span><i class="sw" style="background:var(--accent);opacity:.45"></i>Lighter top: in WIP</span>
+        <span class="hint">Finished Goods is a stack of layers, one per item. Colours match the list on the right, and selecting a warehouse labels its layers. Lights on top of a workbench are job slots, crates in front are queued job cards. Drag to rotate, Shift-drag or right-drag to pan, scroll or pinch to zoom.</span>
+      </div>
+    </div>
+    <aside class="inspector" id="inspector" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+function wfStart() {
+'use strict';
+
+// <pure>
+function pad(n, w) { var s = String(n); while (s.length < w) s = '0' + s; return s; }
+var ITEMS = [
+  ['STL-BRK-040', 'Steel bracket 40 mm', 'pcs', 3.2], ['BLT-M8-100', 'Hex bolt M8 x 100', 'pcs', 0.45],
+  ['PLT-EU-1200', 'Pallet 1200 x 800', 'pcs', 38], ['BOX-C-340', 'Carton 340 x 240', 'pcs', 1.9],
+  ['RES-EPX-5K', 'Epoxy resin 5 kg', 'pcs', 96], ['CBL-CU-2.5', 'Copper cable 2.5 mm', 'm', 4.1],
+  ['FLT-HYD-20', 'Hydraulic filter', 'pcs', 54], ['LBL-TH-100', 'Thermal label roll', 'pcs', 7.5],
+  ['GLV-NIT-L', 'Nitrile gloves L', 'box', 18], ['SEN-PRX-12', 'Proximity sensor M12', 'pcs', 42],
+  ['BRG-6204', 'Ball bearing 6204', 'pcs', 11.5], ['PIP-PVC-50', 'PVC pipe 50 mm', 'm', 6.8]
+];
+var MOVE_IN = ['Purchase Receipt', 'Material Receipt'];
+var MOVE_OUT = ['Delivery Note', 'Material Issue'];
+// order sets the position along the line: Stores, WIP, then the workbenches, then Finished Goods.
+// Merged Stores + WIP row: [item index, qty in Stores, qty in WIP, capacity for that item]
+var WH_DEF = [[0, 1650, 700, 3500], [1, 1300, 500, 2500], [3, 1000, 150, 1800], [7, 120, 0, 1000], [10, 450, 350, 900], [9, 60, 200, 600], [5, 2200, 300, 3000], [8, 180, 0, 400]];
+var FG_DEF = { name: 'Finished Goods - MFG', cap: 4000, f: 0.34, picks: [[2, 0.35], [4, 0.25], [6, 0.25], [11, 0.15]] };
+var BENCH_DEF = [
+  { name: 'Workbench #1', cap: 2, op: 'Assembly', doneToday: 240,
+    jobs: [{ state: 'run', qty: 200, done: 80 }, { state: 'open', qty: 120, done: 0 }, { state: 'open', qty: 80, done: 0 }] },
+  { name: 'Workbench #2', cap: 1, op: 'Packing', doneToday: 120,
+    jobs: [{ state: 'open', qty: 150, done: 0 }] }
+];
+// A routing lists its steps in sequence order; each step names its default workbench by index.
+var ROUTES = [{ name: 'RT-BENCH', label: 'Two-bench assembly', steps: [{ ws: 0, op: 'Assembly' }, { ws: 1, op: 'Packing' }] }];
+// When the page runs inside ERPNext, window.__WF_DATA holds the snapshot and replaces the sample data above.
+var REAL_LOG = null;
+if (window.__WF_DATA) {
+  var D = window.__WF_DATA, ixOf = {};
+  ITEMS = [];
+  D.items.concat(D.fg.lines).forEach(function (x) { if (!(x.code in ixOf)) { ixOf[x.code] = ITEMS.length; ITEMS.push([x.code, x.name, x.uom, x.rate]); } });
+  WH_DEF = D.items.map(function (x) { return [ixOf[x.code], x.stores, x.wip, x.cap]; });
+  FG_DEF = { name: D.fg.name, cap: D.fg.cap, log: D.fg.log || [], lines: D.fg.lines.map(function (x) { return { ix: ixOf[x.code], qty: x.qty }; }) };
+  BENCH_DEF = D.ws; ROUTES = D.routes; REAL_LOG = D.log || {};
+}
+var NITEM = WH_DEF.length, FG = NITEM, WS0 = NITEM + 1, CELL = 2.9, BLOCK = 1.55, LANE_PAD = 1.4, IW = 1.2, ID = 1.9, IP = 1.5, WH_Z = -2.7, FR_Z = 1.3;
+var jcSeq = 40;
+
+function makeJob(j, op, wo) {
+  if (j.jc) return j;
+  return { jc: 'JC-' + pad(++jcSeq, 5), wo: 'WO-' + pad(wo, 4), op: op, qty: j.qty, done: j.done, state: j.state };
+}
+function makePool() {
+  var arr = [];
+  WH_DEF.forEach(function (d, n) {
+    var mv = [['Purchase Receipt', Math.round(d[1] * 0.3 / 10) * 10, 95 + n * 7], ['Material Transfer for Manufacture', -Math.round(d[2] * 0.4 / 10) * 10, 40 + n * 5], ['Manufacture', -Math.round(d[2] * 0.2 / 10) * 10, 12 + n * 3]];
+    arr.push({ id: n, kind: 'item', ix: d[0], name: ITEMS[d[0]][0], order: n, cap: d[3], stores: d[1], wip: d[2], qty: d[1] + d[2], disabled: false, pulse: 0,
+      log: REAL_LOG ? (REAL_LOG[ITEMS[d[0]][0]] || []) : mv.map(function (m) { return { t: m[0], d: m[1], at: Date.now() - m[2] * 60000 }; }) });
+  });
+  var total = Math.round(FG_DEF.cap * (FG_DEF.f || 0));
+  var lines = FG_DEF.lines || FG_DEF.picks.slice().sort(function (a, b) { return b[1] - a[1]; }).map(function (p) { return { ix: p[0], qty: Math.round(total * p[1]) }; });
+  arr.push({ id: FG, kind: 'stock', name: FG_DEF.name, order: 99, cap: FG_DEF.cap, qty: lines.reduce(function (a, l) { return a + l.qty; }, 0), lines: lines, disabled: false, pulse: 0,
+    log: FG_DEF.log || [['Manufacture', 200, 14, 2], ['Delivery Note', -120, 95, 4], ['Manufacture', 120, 240, 11]].map(function (m) { return { t: m[0], d: m[1], at: Date.now() - m[2] * 60000, item: ITEMS[m[3]][0] }; }) });
+  BENCH_DEF.forEach(function (b, i) {
+    var wo = 2010 + i * 37;
+    arr.push({ id: WS0 + i, kind: 'ws', name: b.name, order: 10 + i, cap: b.cap, op: b.op,
+      jobs: b.jobs.map(function (j, n) { return makeJob(j, b.op, wo + n); }), down: !!b.down, doneToday: b.doneToday, disabled: false,
+      log: b.log || [{ t: 'Job Card completed', d: 60 + i * 20, at: Date.now() - 22 * 60000 }, { t: 'Job Card started', d: 200 - i * 50, at: Date.now() - 75 * 60000 }], pulse: 0 });
+  });
+  return arr;
+}
+function runCount(e) { var c = 0; for (var i = 0; i < e.jobs.length; i++) if (e.jobs[i].state === 'run') c++; return c; }
+function queuedCount(e) { return e.jobs.length - runCount(e); }
+function linesOf(e) { return e.kind === 'item' ? [{ ix: e.ix, qty: e.stores }, { ix: e.ix, qty: e.wip }] : e.lines; }
+function valueOf(e) {
+  var v = 0, L = linesOf(e);
+  for (var i = 0; i < L.length; i++) v += L[i].qty * ITEMS[L[i].ix][3];
+  return v;
+}
+function wipColor(ix, dark) { return 'hsl(' + ((ix * 150) % 360) + ',' + (dark ? 62 : 70) + '%,' + (dark ? 76 : 74) + '%)'; }
+function itemColor(ix, dark) {
+  var h = (ix * 150) % 360, l = (dark ? 58 : 46) + (ix % 3) * (dark ? 7 : 9);
+  return 'hsl(' + h + ',' + (dark ? 50 : 55) + '%,' + l + '%)';
+}
+function isDarkHex(hex) {
+  var c = String(hex).replace('#', '');
+  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  return (parseInt(c.slice(0, 2), 16) * 299 + parseInt(c.slice(2, 4), 16) * 587 + parseInt(c.slice(4, 6), 16) * 114) / 1000 < 128;
+}
+// Colour key for either kind: good / warn / bad / neutral
+function statusOf(e) {
+  if (e.kind === 'ws') return e.down ? 'bad' : (runCount(e) > 0 ? 'good' : (e.jobs.length ? 'warn' : 'neutral'));
+  var f = e.qty / e.cap;
+  return f < 0.15 ? 'warn' : (f > 1 ? 'bad' : 'good');
+}
+function stateLabel(e) {
+  if (e.kind === 'ws') return e.down ? 'Down' : (runCount(e) > 0 ? 'Running' : (e.jobs.length ? 'Waiting' : 'Idle'));
+  var s = statusOf(e);
+  return s === 'warn' ? 'Low' : (s === 'bad' ? 'Over capacity' : 'Healthy');
+}
+function resolveRoute(route, pool) {
+  var steps = [], broken = 0;
+  route.steps.forEach(function (s) {
+    var ws = pool[WS0 + s.ws];
+    if (!ws || ws.disabled) { ws = null; broken++; }
+    steps.push({ op: s.op, ws: ws });
+  });
+  return { steps: steps, broken: broken };
+}
+function routeNodes(res) {
+  var ids = [-1]; // -1 = exit point of the Stores + WIP row
+  res.steps.forEach(function (s) { if (s.ws) ids.push(s.ws.id); });
+  ids.push(FG);
+  return ids;
+}
+// One straight line along the x axis, in flow order, centred on the origin.
+function computeLayout(active) {
+  var by = function (a, b) { return a.order - b.order; };
+  var items = active.filter(function (e) { return e.kind === 'item'; }).sort(by);
+  var front = active.filter(function (e) { return e.kind !== 'item'; }).sort(by);
+  var pos = {}, n = items.length, m = front.length;
+  items.forEach(function (e, i) { pos[e.id] = { x: (i - (n - 1) / 2) * IP, z: WH_Z }; });
+  front.forEach(function (e, i) { pos[e.id] = { x: (i - (m - 1) / 2) * CELL, z: FR_Z }; });
+  var w = Math.max(n ? (n - 1) * IP + IW : 0, m ? (m - 1) * CELL + BLOCK : 0);
+  var zb = n ? WH_Z - ID / 2 : FR_Z - BLOCK / 2, zf = FR_Z + BLOCK / 2, d = zf - zb, cz = (zb + zf) / 2;
+  return { pos: pos, lane: { x: 0, z: cz, w: w + LANE_PAD * 2, d: d + LANE_PAD }, w: w, d: d, cz: cz };
+}
+function fitDistance(w, d, h, fovDeg, aspect, theta, phi) {
+  var fv = fovDeg * Math.PI / 180, fh = 2 * Math.atan(Math.tan(fv / 2) * aspect);
+  var c = Math.abs(Math.cos(theta)), s = Math.abs(Math.sin(theta));
+  var halfW = 0.5 * (w * c + d * s) + 1.4;
+  var halfV = 0.5 * (w * s + d * c) * Math.cos(phi) + h * Math.sin(phi) * 0.6 + 1.0;
+  return Math.max(8, halfW / Math.tan(fh / 2), halfV / Math.tan(fv / 2));
+}
+// </pure>
+
+/* ---------- state ---------- */
+var pool = makePool();
+var showRoute = true, selId = null, hoverId = null;
+var curLayout = { pos: {}, lane: { x: 0, z: 0, w: 10, d: 4 }, w: 10, d: 2 };
+var curRoute = null, routeIds = [];
+var H = 3.2, PLATE_H = 0.07, PATH_Y = 0.2, MACH_TOP = 1.62, FIT_H = 4.8;
+var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var $ = function (id) { return document.getElementById(id); };
+var nf = new Intl.NumberFormat('en-MY');
+function active() { return pool.filter(function (e) { return !e.disabled; }); }
+function activeWs() { return pool.filter(function (e) { return e.kind === 'ws' && !e.disabled; }); }
+function rm(v) { return v >= 1e6 ? 'RM ' + (v / 1e6).toFixed(2) + ' M' : (v >= 1e3 ? 'RM ' + (v / 1e3).toFixed(1) + ' k' : 'RM ' + Math.round(v)); }
+function ago(at) { var m = Math.floor((Date.now() - at) / 60000); return m < 1 ? 'just now' : (m < 60 ? m + ' min ago' : Math.floor(m / 60) + ' h ago'); }
+function shortName(e) { return e.name.replace(' - MFG', ''); }
+function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function pickOne(a) { return a[Math.floor(Math.random() * a.length)]; }
+var P = {};
+
+/* ---------- 3D setup ---------- */
+var stage = $('stage'), cv = $('cv'), labelsEl = $('labels');
+var renderer = null;
+try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); } catch (err) { renderer = null; }
+
+var scene, cam, objs = [], lane, floor, ring, ghostMat, plateMat, zoneMat, floorMat, accentCol, routeMat, partMat, crateMat;
+var segs = [], parts = [];
+var orbit = { theta: 0.5, phi: 0.98, dist: 20, tx: 0, ty: 0.8, tz: 0, gdist: 20, gtx: 0, gty: 0.8, gtz: 0 };
+var manualFrame = false;
+var W = 800, Ht = 500;
+
+function mesh(geo, mat, sx, sy, sz, x, y, z) {
+  var m = new THREE.Mesh(geo, mat);
+  m.scale.set(sx, sy, sz); m.position.set(x, y, z);
+  return m;
+}
+if (renderer) {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+  scene = new THREE.Scene();
+  cam = new THREE.PerspectiveCamera(32, 1.6, 0.1, 500);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8896ad, 0.62));
+  var dirL = new THREE.DirectionalLight(0xffffff, 0.5);
+  dirL.position.set(6, 10, 4);
+  scene.add(dirL);
+
+  var boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  var edgesGeo = new THREE.EdgesGeometry(boxGeo);
+  floorMat = new THREE.MeshBasicMaterial({ color: 0xcccccc });
+  zoneMat = new THREE.MeshBasicMaterial({ color: 0xbbbbbb });
+  plateMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+  ghostMat = new THREE.LineBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.55 });
+  crateMat = new THREE.MeshLambertMaterial({ color: 0xb58a4a });
+  routeMat = new THREE.MeshBasicMaterial({ color: 0x2b4fd8 });
+  partMat = new THREE.MeshBasicMaterial({ color: 0x2b4fd8 });
+  accentCol = new THREE.Color(0x2b4fd8);
+
+  floor = new THREE.Mesh(boxGeo, floorMat);
+  floor.userData = { w: 12, d: 8, tw: 12, td: 8 };
+  scene.add(floor);
+  lane = { mesh: new THREE.Mesh(boxGeo, zoneMat), x: 0, z: 0, w: 10, d: 4, tx: 0, tz: 0, tw: 10, td: 4 };
+  scene.add(lane.mesh);
+
+  pool.forEach(function (e) {
+    var o;
+    if (e.kind !== 'ws') {
+      var plate = mesh(boxGeo, plateMat, 1, 1, 1, 0, 0, 0);
+      var ghost = new THREE.LineSegments(edgesGeo, ghostMat);
+      var sstrip = mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x888888 }), 1, 1, 1, 0, 0, 0);
+      plate.userData.id = e.id;
+      plate.visible = ghost.visible = sstrip.visible = false;
+      scene.add(plate); scene.add(ghost); scene.add(sstrip);
+      var hit = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+      hit.userData.id = e.id; hit.visible = false; scene.add(hit);
+      var slices = [];
+      for (var sn = 0; sn < 6; sn++) {
+        var sl = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x888888 }));
+        sl.userData.id = e.id; sl.visible = false; scene.add(sl); slices.push(sl);
+      }
+      o = { kind: e.kind, e: e, plate: plate, hit: hit, slices: slices, ghost: ghost, strip: sstrip, x: 0, z: 0, tx: 0, tz: 0, h: 0.1, th: 0.1, s: 0, ts: 0, gh: 0, tgh: 0 };
+    } else {
+      var g = new THREE.Group();
+      var bMat = new THREE.MeshLambertMaterial({ color: 0x777777 }), cMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+      var mp = mesh(boxGeo, plateMat, BLOCK * 1.08, PLATE_H, BLOCK * 1.08, 0, PLATE_H / 2, 0);
+      var mb = mesh(boxGeo, bMat, 1.3, 0.9, 1.1, 0, PLATE_H + 0.45, 0);
+      var mc = mesh(boxGeo, cMat, 0.55, 1.5, 0.55, -0.4, PLATE_H + 0.75, -0.28);
+      var strip = mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x888888 }), 1.3, 0.12, 0.04, 0, PLATE_H + 0.62, 0.56);
+      mp.userData.id = e.id; mb.userData.id = e.id; mc.userData.id = e.id;
+      g.add(mp); g.add(mb); g.add(mc); g.add(strip);
+      var pegs = [], crates = [], n;
+      for (n = 0; n < 4; n++) {
+        var pg = mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x888888 }), 0.16, 0.14, 0.16, -0.02 + n * 0.19, PLATE_H + 0.97, 0.1);
+        g.add(pg); pegs.push(pg);
+      }
+      for (n = 0; n < 6; n++) {
+        var cr = mesh(boxGeo, crateMat, 0.24, 0.2, 0.24, -0.62 + n * 0.25, PLATE_H + 0.1, 0.7);
+        g.add(cr); crates.push(cr);
+      }
+      g.visible = false; scene.add(g);
+      o = { kind: 'ws', e: e, g: g, plate: mp, body: mb, cab: mc, bodyMat: bMat, cabMat: cMat, strip: strip, pegs: pegs, crates: crates, x: 0, z: 0, tx: 0, tz: 0, s: 0, ts: 0 };
+    }
+    objs[e.id] = o;
+  });
+
+  var shape = new THREE.Shape();
+  shape.moveTo(-0.5, -0.5); shape.lineTo(0.5, -0.5); shape.lineTo(0.5, 0.5); shape.lineTo(-0.5, 0.5); shape.lineTo(-0.5, -0.5);
+  var hole = new THREE.Path();
+  hole.moveTo(-0.45, -0.45); hole.lineTo(-0.45, 0.45); hole.lineTo(0.45, 0.45); hole.lineTo(0.45, -0.45); hole.lineTo(-0.45, -0.45);
+  shape.holes.push(hole);
+  ring = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: 0x2b4fd8, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.visible = false; scene.add(ring);
+
+  var q;
+  for (q = 0; q < 8; q++) { var sg = mesh(boxGeo, routeMat, 0.14, 0.04, 1, 0, PATH_Y, 0); sg.visible = false; scene.add(sg); segs.push(sg); }
+  for (q = 0; q < 14; q++) { var pt = mesh(boxGeo, partMat, 0.24, 0.24, 0.24, 0, PATH_Y + 0.1, 0); pt.visible = false; scene.add(pt); parts.push(pt); }
+} else {
+  $('nogl').hidden = false;
+}
+
+/* ---------- theme ---------- */
+function applyTheme() {
+  ['good', 'warn', 'bad', 'neutral', 'accent', 'machine', 'machine2', 'crate', 'pegoff', 'floor', 'zone', 'plate', 'muted', 'bg'].forEach(function (n) { P[n] = tok('--' + n); });
+  P.dark = isDarkHex(P.bg);
+  if (!renderer) return;
+  floorMat.color.set(P.floor); zoneMat.color.set(P.zone); plateMat.color.set(P.plate);
+  ghostMat.color.set(P.muted); accentCol.set(P.accent); ring.material.color.set(P.accent);
+  routeMat.color.set(P.accent); partMat.color.set(P.accent); crateMat.color.set(P.crate);
+  pool.forEach(function (e) { if (e.kind === 'ws') { objs[e.id].bodyMat.color.set(P.machine); objs[e.id].cabMat.color.set(P.machine2); } });
+  paintBodies();
+}
+function paintBodies() {
+  if (!renderer) return;
+  pool.forEach(function (e) {
+    var o = objs[e.id], key = statusOf(e);
+    if (e.kind !== 'ws') {
+      o.strip.material.color.set(P[key]);
+      linesOf(e).forEach(function (l, n) { if (o.slices[n]) o.slices[n].material.color.set(e.kind === 'item' && n === 1 ? wipColor(l.ix, P.dark) : itemColor(l.ix, P.dark)); });
+      return;
+    }
+    o.strip.material.color.set(P[key]);
+    var r = runCount(e), q = queuedCount(e), n;
+    for (n = 0; n < 4; n++) {
+      o.pegs[n].visible = n < e.cap;
+      o.pegs[n].material.color.set(e.down ? P.bad : (n < r ? P.good : P.pegoff));
+    }
+    for (n = 0; n < 6; n++) o.crates[n].visible = n < q;
+  });
+}
+
+/* ---------- data to targets ---------- */
+function heightTargets() {
+  pool.forEach(function (e) {
+    if (e.kind === 'ws') return;
+    var o = objs[e.id];
+    o.th = Math.max(0.08, Math.min(e.qty / e.cap, 1.25) * H);
+    o.tgh = H;
+  });
+}
+function refreshKpis() {
+  var ws = activeWs(), run = 0, cap = 0, q = 0, down = 0, waiting = 0, running = 0;
+  ws.forEach(function (e) {
+    var r = runCount(e);
+    run += r; cap += e.cap; q += queuedCount(e);
+    if (e.down) down++; else if (r > 0) running++; else if (e.jobs.length) waiting++;
+  });
+  var lowN = 0;
+  pool.forEach(function (e) { if (e.kind === 'item' && statusOf(e) !== 'good') lowN++; });
+  $('kStock').textContent = lowN; $('kStockNote').textContent = 'of ' + NITEM + ' stocked items low or over capacity'; $('kpiStock').dataset.sev = lowN ? 'warn' : '';
+  $('kWs').textContent = ws.length;
+  $('kWsNote').textContent = running + ' running now';
+  $('kUtil').textContent = (cap ? Math.round(run / cap * 100) : 0) + '%';
+  $('kUtilNote').textContent = run + ' of ' + cap + ' job slots in use';
+  $('kQ').textContent = q;
+  $('kQNote').textContent = waiting + (waiting === 1 ? ' workbench' : ' workbenches') + ' waiting for a job to start';
+  $('kDown').textContent = down;
+  $('kpiDown').dataset.sev = down ? 'bad' : '';
+  $('kpiQ').dataset.sev = waiting ? 'warn' : '';
+}
+function refreshPicker() {
+  var sel = $('pick'), keep = selId === null ? '' : String(selId);
+  var html = '<option value="">Choose item</option>';
+  active().slice().sort(function (a, b) { return a.order - b.order; }).forEach(function (e) {
+    html += '<option value="' + e.id + '">' + e.name + '</option>';
+  });
+  sel.innerHTML = html; sel.value = keep;
+}
+function fit() {
+  if (!renderer || manualFrame) return;
+  orbit.gdist = fitDistance(curLayout.w, curLayout.d, FIT_H, cam.fov, cam.aspect, orbit.theta, orbit.phi);
+  orbit.gtx = 0; orbit.gtz = curLayout.cz || 0; orbit.gty = 0.5;
+}
+function updateRoute() {
+  curRoute = showRoute ? resolveRoute(ROUTES[0], pool) : null;
+  routeIds = curRoute ? routeNodes(curRoute) : [];
+}
+function relayout() {
+  var act = active();
+  curLayout = computeLayout(act);
+  if (renderer) {
+    act.forEach(function (e) {
+      var o = objs[e.id], p = curLayout.pos[e.id];
+      o.tx = p.x; o.tz = p.z; o.ts = 1;
+      if (o.s < 0.02) { o.x = p.x; o.z = p.z; }
+    });
+    pool.forEach(function (e) { if (e.disabled) objs[e.id].ts = 0; });
+    lane.tz = curLayout.lane.z; lane.tx = curLayout.lane.x; lane.tw = curLayout.lane.w; lane.td = curLayout.lane.d;
+    floor.userData.tw = Math.max(14, curLayout.w + 7);
+    floor.userData.td = Math.max(9, curLayout.d + 5);
+    heightTargets(); paintBodies(); fit();
+  }
+  updateRoute();
+  refreshKpis(); refreshPicker(); renderInspector();
+}
+function refreshValues() {
+  if (renderer) { heightTargets(); paintBodies(); }
+  updateRoute(); refreshKpis(); renderInspector();
+}
+
+/* ---------- inspector ---------- */
+function itemRows(e) {
+  var rows = e.lines.slice().sort(function (a, b) { return b.qty - a.qty; }), h = '';
+  rows.forEach(function (l) {
+    var it = ITEMS[l.ix];
+    h += '<div class="it"><i class="sw" style="background:' + itemColor(l.ix, P.dark) + '"></i><span class="code">' + it[0] + '</span>' +
+      '<span class="q">' + nf.format(l.qty) + ' ' + it[2] + '</span><span class="nm">' + it[1] + '</span><span class="v">' + rm(l.qty * it[3]) + '</span></div>';
+  });
+  return h;
+}
+function stockHtml(e) {
+  var st = statusOf(e), f = e.qty / e.cap;
+  var role = e.id === 0 ? 'Source warehouse on a Work Order' : (e.id === 1 ? 'Work-in-progress warehouse' : 'Target warehouse for finished goods');
+  var h = '<div><div class="row"><h2>' + e.name + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">' + role + '</div></div>';
+  h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(f * 100) + '%<small>of capacity</small></div>' +
+    '<div class="bar" style="margin-top:10px"><i style="width:' + Math.min(100, f * 100).toFixed(1) + '%"></i></div></div>';
+  h += '<dl class="kv"><dt>On hand</dt><dd>' + nf.format(e.qty) + ' units</dd><dt>Capacity</dt><dd>' + nf.format(e.cap) + ' units</dd>' +
+    '<dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Different items</dt><dd>' + e.lines.length + '</dd></dl>';
+  h += '<div><h3>Items in this warehouse (' + e.lines.length + ')</h3><div class="items">' + itemRows(e) + '</div></div>';
+  h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
+  e.log.slice(0, 4).forEach(function (m) {
+    h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + (m.item ? m.item + ' · ' : '') + ago(m.at) + '</span></div>';
+  });
+  return h + '</div></div><div class="route">/app/warehouse/' + e.name + '</div>';
+}
+function wsHtml(e) {
+  var st = statusOf(e), r = runCount(e), q = queuedCount(e);
+  var h = '<div><div class="row"><h2>' + e.name + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">Workstation · ' + e.op + '</div></div>';
+  h += '<div style="--c:var(--' + st + ')"><div class="big">' + r + '<small>of ' + e.cap + (e.cap === 1 ? ' job slot' : ' job slots') + ' running</small></div>' +
+    '<div class="bar" style="margin-top:10px"><i style="width:' + Math.round(r / e.cap * 100) + '%"></i></div></div>';
+  h += '<dl class="kv"><dt>Production capacity</dt><dd>' + e.cap + (e.cap === 1 ? ' job' : ' jobs') + '</dd><dt>Running</dt><dd>' + r +
+    '</dd><dt>Queued job cards</dt><dd>' + q + '</dd><dt>Completed today</dt><dd>' + nf.format(e.doneToday) + ' pcs</dd></dl>';
+  var jobs = e.jobs.slice().sort(function (a, b) { return (a.state === 'run' ? 0 : 1) - (b.state === 'run' ? 0 : 1); });
+  h += '<div><h3>Job cards</h3><div class="tbl">';
+  if (!jobs.length) h += '<div><span class="nm">Nothing queued or running.</span></div>';
+  jobs.slice(0, 4).forEach(function (j) {
+    h += '<div><span class="code">' + j.jc + ' · ' + j.wo + '</span><span class="q">' + (j.state === 'run' ? j.done + ' / ' + j.qty : j.qty) + ' pcs</span><span class="nm">' + j.op + ' · ' + (j.state === 'run' ? 'Work In Progress' : 'Open') + '</span></div>';
+  });
+  if (jobs.length > 4) h += '<div><span class="nm">+ ' + (jobs.length - 4) + ' more</span></div>';
+  h += '</div></div>';
+  var uses = [];
+  ROUTES.forEach(function (rt) {
+    resolveRoute(rt, pool).steps.forEach(function (s, i) { if (s.ws === e) uses.push(rt.name + ' step ' + (i + 1)); });
+  });
+  h += '<div><h3>Used in routings</h3><p class="note" style="margin-top:6px">' + (uses.length ? uses.join(', ') : 'Not on any routing.') + '</p></div>';
+  h += '<div><h3>Recent events</h3><div style="margin-top:6px">';
+  e.log.slice(0, 4).forEach(function (m) {
+    h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d">' + (m.d ? m.d + ' pcs' : '') + '</span><span class="a">' + ago(m.at) + '</span></div>';
+  });
+  return h + '</div></div><div class="route">/app/workstation/' + e.name + '</div>';
+}
+function itemHtml(e) {
+  var st = statusOf(e), it = ITEMS[e.ix], pS = Math.min(100, e.stores / e.cap * 100), pW = Math.min(100 - pS, e.wip / e.cap * 100);
+  var h = '<div><div class="row"><h2>' + it[0] + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">' + it[1] + ' · Stores + WIP</div></div>';
+  h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(e.qty / e.cap * 100) + '%<small>of item capacity</small></div><div class="bar" style="margin-top:10px;display:flex"><i style="width:' + pS.toFixed(1) + '%;background:' + itemColor(e.ix, P.dark) + '"></i><i style="width:' + pW.toFixed(1) + '%;background:' + wipColor(e.ix, P.dark) + '"></i></div></div>';
+  h += '<dl class="kv"><dt>In Stores</dt><dd>' + nf.format(e.stores) + ' ' + it[2] + '</dd><dt>In Work In Progress</dt><dd>' + nf.format(e.wip) + ' ' + it[2] + '</dd><dt>Total on hand</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Item capacity</dt><dd>' + nf.format(e.cap) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>RM ' + it[3] + '</dd></dl>';
+  h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
+  e.log.slice(0, 4).forEach(function (m) { h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + ago(m.at) + '</span></div>'; });
+  return h + '</div></div><div class="route">/app/item/' + it[0] + '</div>';
+}
+function routeHtml() {
+  if (!curRoute) return '';
+  var rt = ROUTES[0], h = '<div><h3>Routing ' + rt.name + ' · ' + rt.label + '</h3><div class="steps">';
+  curRoute.steps.forEach(function (s, i) {
+    var key = s.ws ? statusOf(s.ws) : 'neutral';
+    h += '<div><span class="n">' + (i + 1) + '</span><span class="op">' + s.op + '</span>' +
+      '<span class="who">' + (s.ws ? s.ws.name : 'no active workstation') + '</span>' +
+      '<span class="st">' + (s.ws ? '<span class="dot ' + key + '"></span>' + stateLabel(s.ws) : '<span class="pill bad">Broken</span>') + '</span></div>';
+  });
+  return h + '</div><p class="note" style="margin-top:8px">The path leaves the Stores + WIP row, follows the steps in sequence order, and ends at Finished Goods.</p></div>';
+}
+function renderInspector() {
+  var box = $('inspector');
+  var e = selId === null ? null : pool[selId];
+  if (e && e.disabled) { selId = null; e = null; }
+  var h;
+  if (!e) {
+    h = '<div class="empty"><h2>Stock by warehouse</h2><p class="note">Every item each warehouse holds. Click a warehouse to focus it, or a workbench to see its job cards.</p></div>';
+    var its = pool.slice(0, NITEM), tv = 0, fg = pool[FG];
+    its.forEach(function (e) { tv += valueOf(e); });
+    h += '<div class="wh"><div class="row"><h3>Stores + WIP</h3><span class="zname">' + its.length + ' items · ' + rm(tv) + '</span></div><div class="items" style="max-height:none">';
+    its.forEach(function (e) {
+      var it = ITEMS[e.ix];
+      h += '<div class="it" data-sel="' + e.id + '"><i class="sw" style="background:' + itemColor(e.ix, P.dark) + '"></i><span class="code">' + it[0] + '</span><span class="q">' + nf.format(e.qty) + ' ' + it[2] + '</span><span class="nm">Stores ' + nf.format(e.stores) + ' · WIP ' + nf.format(e.wip) + '</span><span class="v">' + Math.round(e.qty / e.cap * 100) + '% full</span></div>';
+    });
+    h += '</div></div><div class="wh"><div class="row"><h3>' + fg.name + '</h3><span class="zname">' + fg.lines.length + ' items · ' + nf.format(fg.qty) + ' units</span></div><div class="items" style="max-height:none">' + itemRows(fg) + '</div></div>';
+    h += '<details><summary>Intended ERPNext mapping</summary><dl class="kv" style="margin-top:8px">' +
+      '<dt>Stock point</dt><dd>Warehouse (Stores and WIP drawn as one row, Finished Goods)</dd>' +
+      '<dt>Item bar</dt><dd>Bin rows for one item: Stores solid, WIP lighter</dd>' +
+      '<dt>Workbench</dt><dd>Workstation</dd>' +
+      '<dt>Job slots</dt><dd>Workstation production capacity</dd>' +
+      '<dt>Running / queued</dt><dd>Job Cards at that workstation</dd>' +
+      '<dt>Path</dt><dd>Routing operations in sequence order</dd></dl>' +
+      '<p class="note" style="margin-top:8px">This page uses generated sample data. The mapping is the plan for ERPNext V16.</p></details>';
+  } else h = e.kind === 'stock' ? stockHtml(e) : (e.kind === 'item' ? itemHtml(e) : wsHtml(e));
+  box.innerHTML = h + routeHtml();
+}
+function select(id) {
+  selId = (id === null || id === '') ? null : Number(id);
+  $('pick').value = selId === null ? '' : String(selId);
+  renderInspector();
+}
+
+/* ---------- controls ---------- */
+$('showRoute').addEventListener('change', function () { showRoute = this.checked; updateRoute(); renderInspector(); });
+$('btnReset').addEventListener('click', function () { manualFrame = false; orbit.theta = 0.5; orbit.phi = 0.98; fit(); });
+$('pick').addEventListener('change', function () { select(this.value); });
+$('inspector').addEventListener('click', function (ev) { var r = ev.target.closest && ev.target.closest('[data-sel]'); if (r) select(r.dataset.sel); });
+var liveTimer = null;
+$('live').addEventListener('change', function () {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  if (this.checked) liveTimer = setInterval(liveTick, 1100);
+});
+function logWs(m, t, d) { m.log.unshift({ t: t, d: d, at: Date.now() }); m.log.length = Math.min(m.log.length, 8); }
+function liveTick() {
+  var ws = activeWs(), r = Math.random();
+  if (r < 0.3 || !ws.length) {
+    var s = pool[Math.floor(Math.random() * (NITEM + 1))], cap = s.cap, mag, d;
+    if (s.kind === 'item') {
+      var x = Math.random(), now = Date.now();
+      mag = Math.max(10, Math.round((0.04 + Math.random() * 0.1) * cap / 10) * 10);
+      if (x < 0.34 && s.qty + mag <= cap * 1.12) { s.stores += mag; s.log.unshift({ t: 'Purchase Receipt', d: mag, at: now }); }
+      else if (x < 0.7 && s.stores > 0) { mag = Math.min(mag, s.stores); s.stores -= mag; s.wip += mag; s.log.unshift({ t: 'Material Transfer for Manufacture', d: -mag, at: now }); }
+      else if (s.wip > 0) { mag = Math.min(mag, s.wip); s.wip -= mag; s.log.unshift({ t: 'Manufacture', d: -mag, at: now }); }
+      s.qty = s.stores + s.wip;
+    } else {
+      var ln = pickOne(s.lines);
+      mag = Math.max(10, Math.round((0.03 + Math.random() * 0.12) * ln.qty / 10) * 10);
+      d = Math.random() < 0.55 ? mag : -mag;
+      if (ln.qty + d < 0) d = mag;
+      if (s.qty + d > cap * 1.12) d = -Math.min(mag, ln.qty);
+      ln.qty += d; s.qty += d;
+      s.log.unshift({ t: pickOne(d > 0 ? MOVE_IN : MOVE_OUT), d: d, at: Date.now(), item: ITEMS[ln.ix][0] });
+    }
+    s.log.length = Math.min(s.log.length, 8);
+    s.pulse = 1;
+  } else {
+    var m = pickOne(ws), run = runCount(m), q = queuedCount(m), jb;
+    if (m.down) {
+      if (Math.random() < 0.4) { m.down = false; logWs(m, 'Back in service', 0); }
+    } else if (Math.random() < 0.05) {
+      m.down = true;
+      m.jobs.forEach(function (j) { if (j.state === 'run') j.state = 'open'; });
+      logWs(m, 'Breakdown logged', 0);
+    } else if (run > 0 && Math.random() < 0.6) {
+      var ix = 0;
+      while (m.jobs[ix].state !== 'run') ix++;
+      jb = m.jobs.splice(ix, 1)[0];
+      m.doneToday += jb.qty; logWs(m, 'Job Card completed', jb.qty);
+    } else if (run < m.cap && q > 0) {
+      jb = m.jobs.filter(function (j) { return j.state === 'open'; })[0];
+      jb.state = 'run'; jb.done = 0; logWs(m, 'Job Card started', jb.qty);
+    } else if (q < 6 && Math.random() < 0.6) {
+      jb = { jc: 'JC-' + pad(++jcSeq, 5), wo: 'WO-' + pad(2000 + Math.floor(Math.random() * 400), 4), op: m.op, qty: 20 + Math.floor(Math.random() * 38) * 10, done: 0, state: 'open' };
+      m.jobs.push(jb); logWs(m, 'Job Card created', jb.qty);
+    }
+    m.pulse = 1;
+  }
+  refreshValues();
+}
+
+/* ---------- pointer interaction ---------- */
+var ptrs = {}, down = null, pinch0 = 0;
+var ray = renderer ? new THREE.Raycaster() : null, ndc = renderer ? new THREE.Vector2() : null;
+var tip = $('tip');
+function hideTip() { tip.hidden = true; }
+function showTip(cx, cy) {
+  var e = hoverId === null ? null : pool[hoverId];
+  if (!e || e.kind !== 'item') { tip.hidden = true; return; }
+  var it = ITEMS[e.ix], r = stage.getBoundingClientRect();
+  tip.innerHTML = '<b>' + it[0] + '</b><span>' + it[1] + '</span><dl><dt>Stores</dt><dd>' + nf.format(e.stores) + ' ' + it[2] + '</dd><dt>Work In Progress</dt><dd>' + nf.format(e.wip) + ' ' + it[2] + '</dd><dt>Total</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + ' · ' + Math.round(e.qty / e.cap * 100) + '%</dd></dl>';
+  tip.hidden = false;
+  var x = Math.min(cx - r.left + 14, r.width - tip.offsetWidth - 6), y = Math.min(cy - r.top + 14, r.height - tip.offsetHeight - 6);
+  tip.style.transform = 'translate(' + Math.max(6, x) + 'px,' + Math.max(6, y) + 'px)';
+}
+function pickAt(cx, cy) {
+  var r = cv.getBoundingClientRect();
+  ndc.x = ((cx - r.left) / r.width) * 2 - 1; ndc.y = -((cy - r.top) / r.height) * 2 + 1;
+  ray.setFromCamera(ndc, cam);
+  var list = [];
+  for (var i = 0; i < objs.length; i++) {
+    var o = objs[i];
+    if (o.ts > 0 && o.s > 0.5) {
+      list.push(o.plate); list.push(o.hit);
+      if (o.slices) { for (var q2 = 0; q2 < o.slices.length; q2++) if (o.slices[q2].visible) list.push(o.slices[q2]); }
+      else { list.push(o.body); list.push(o.cab); }
+    }
+  }
+  var hit = ray.intersectObjects(list, false);
+  return hit.length ? hit[0].object.userData.id : null;
+}
+if (renderer) {
+  cv.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  cv.addEventListener('pointerdown', function (ev) {
+    cv.setPointerCapture(ev.pointerId); hideTip();
+    ptrs[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    down = { x: ev.clientX, y: ev.clientY, moved: false, pan: ev.button === 2 || ev.shiftKey };
+    var ids = Object.keys(ptrs);
+    if (ids.length === 2) { var a = ptrs[ids[0]], b = ptrs[ids[1]]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); }
+  });
+  cv.addEventListener('pointermove', function (ev) {
+    var p = ptrs[ev.pointerId];
+    if (!p) { hoverId = pickAt(ev.clientX, ev.clientY); cv.style.cursor = hoverId === null ? '' : 'pointer'; showTip(ev.clientX, ev.clientY); return; }
+    var dx = ev.clientX - p.x, dy = ev.clientY - p.y;
+    var ids = Object.keys(ptrs);
+    p.x = ev.clientX; p.y = ev.clientY;
+    if (down && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 4) down.moved = true;
+    if (ids.length >= 2) {
+      var a = ptrs[ids[0]], b = ptrs[ids[1]], dd = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch0 > 0 && dd > 0) { orbit.gdist = Math.min(120, Math.max(5, orbit.gdist * pinch0 / dd)); manualFrame = true; }
+      pinch0 = dd;
+    } else if (down && down.pan) {
+      var s = orbit.dist * 0.0016;
+      orbit.gtx += -Math.cos(orbit.theta) * dx * s + -Math.sin(orbit.theta) * dy * s;
+      orbit.gtz += Math.sin(orbit.theta) * dx * s + -Math.cos(orbit.theta) * dy * s;
+      manualFrame = true;
+    } else {
+      orbit.theta -= dx * 0.006;
+      orbit.phi = Math.min(1.45, Math.max(0.25, orbit.phi - dy * 0.005));
+    }
+  });
+  var up = function (ev) {
+    var wasDown = down;
+    delete ptrs[ev.pointerId];
+    if (Object.keys(ptrs).length < 2) pinch0 = 0;
+    if (wasDown && !wasDown.moved && ev.type === 'pointerup' && Object.keys(ptrs).length === 0) {
+      var id = pickAt(ev.clientX, ev.clientY);
+      select(id === null ? null : id);
+    }
+    if (Object.keys(ptrs).length === 0) down = null;
+  };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+  cv.addEventListener('pointerleave', function () { hoverId = null; hideTip(); });
+  cv.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    orbit.gdist = Math.min(120, Math.max(5, orbit.gdist * Math.exp(ev.deltaY * 0.0012)));
+    manualFrame = true;
+  }, { passive: false });
+}
+
+/* ---------- labels ---------- */
+var labelEls = {}, vtmp = renderer ? new THREE.Vector3() : null;
+function labelEl(key, cls) {
+  var el = labelEls[key];
+  if (!el) { el = document.createElement('div'); el.className = 'lbl ' + (cls || ''); el.style.display = 'none'; labelsEl.appendChild(el); labelEls[key] = el; }
+  return el;
+}
+function placeLabel(el, x, y, z, text) {
+  vtmp.set(x, y, z).project(cam);
+  if (vtmp.z > 1 || Math.abs(vtmp.x) > 1.1 || Math.abs(vtmp.y) > 1.1) { el.style.display = 'none'; return; }
+  var sx = (vtmp.x * 0.5 + 0.5) * W, sy = (-vtmp.y * 0.5 + 0.5) * Ht;
+  if (el._t !== text) { el.textContent = text; el._t = text; }
+  el.style.display = '';
+  el.style.transform = 'translate(' + Math.round(sx) + 'px,' + Math.round(sy) + 'px) translate(-50%,-100%)';
+}
+function updateLabels() {
+  var k;
+  for (k in labelEls) labelEls[k]._keep = false;
+  pool.forEach(function (e) {
+    var o = objs[e.id];
+    if (o.ts === 0 || o.s < 0.5) return;
+    var focus = e.id === selId || e.id === hoverId;
+    var el = labelEl('w' + e.id, ''); el._keep = true;
+    el.classList.toggle('on', focus);
+    var txt, y;
+    if (e.kind === 'item') {
+      txt = e.name;
+      y = PLATE_H + o.gh * o.s + 0.3 + (e.order % 2) * 0.55;
+    } else if (e.kind === 'stock') {
+      txt = shortName(e) + (focus ? ' · ' + Math.round(e.qty / e.cap * 100) + '%' : '');
+      y = PLATE_H + Math.max(o.h, o.gh) * o.s + 0.3;
+    } else {
+      txt = e.name + (focus ? ' · ' + runCount(e) + '/' + e.cap : '');
+      y = (MACH_TOP + 0.35) * o.s;
+    }
+    placeLabel(el, o.x, y, o.z, txt);
+  });
+  if (curRoute) {
+    curRoute.steps.forEach(function (s, i) {
+      if (!s.ws) return;
+      var o = objs[s.ws.id], el = labelEl('r' + i, 'step'); el._keep = true;
+      placeLabel(el, o.x, 0.05, o.z + BLOCK * 0.95, 'Step ' + (i + 1) + ' · ' + s.op);
+    });
+  }
+  if (objs[0].s > 0.5) { var gl = labelEl('wh', ''); gl._keep = true; placeLabel(gl, 0, PLATE_H + H + 1.5, WH_Z, 'Stores + WIP · ' + NITEM + ' item types'); }
+  var sel = selId === null ? null : pool[selId];
+  if (sel && sel.kind === 'stock' && objs[sel.id].s > 0.5) {
+    var so2 = objs[sel.id], tot2 = 0, cum2 = 0, pts2 = [];
+    sel.lines.forEach(function (l) { tot2 += l.qty; });
+    sel.lines.forEach(function (l, n) {
+      var lh2 = tot2 > 0 ? Math.max(0.02, so2.h * so2.s) * l.qty / tot2 : 0;
+      vtmp.set(so2.x + BLOCK * 0.55, PLATE_H + cum2 + lh2 / 2, so2.z).project(cam);
+      cum2 += lh2;
+      if (l.qty > 0 && vtmp.z < 1) pts2.push({ n: n, l: l, sx: (vtmp.x * 0.5 + 0.5) * W, sy: (-vtmp.y * 0.5 + 0.5) * Ht });
+    });
+    pts2.sort(function (a, b) { return a.sy - b.sy; });
+    for (var q3 = 1; q3 < pts2.length; q3++) if (pts2[q3].sy - pts2[q3 - 1].sy < 18) pts2[q3].sy = pts2[q3 - 1].sy + 18;
+    pts2.forEach(function (p) {
+      var el = labelEl('i' + p.n, 'item'); el._keep = true;
+      var txt = ITEMS[p.l.ix][0] + ' · ' + nf.format(p.l.qty);
+      if (el._t !== txt) { el.textContent = txt; el._t = txt; }
+      el.style.setProperty('--ic', itemColor(p.l.ix, P.dark));
+      el.style.display = '';
+      el.style.transform = 'translate(' + Math.round(p.sx + 8) + 'px,' + Math.round(p.sy) + 'px) translate(0,-50%)';
+    });
+  }
+  for (k in labelEls) if (!labelEls[k]._keep) labelEls[k].style.display = 'none';
+}
+
+/* ---------- render loop ---------- */
+function onResize() {
+  if (!renderer) return;
+  var r = stage.getBoundingClientRect();
+  W = Math.max(200, Math.round(r.width)); Ht = Math.max(200, Math.round(r.height));
+  renderer.setSize(W, Ht, false);
+  cam.aspect = W / Ht; cam.updateProjectionMatrix();
+  fit();
+}
+function updateRouteMeshes(now) {
+  var np = routeIds.length, i, L = 0, cum = [0], pts = [];
+  for (i = 0; i < np; i++) { var o = objs[routeIds[i]]; pts.push(routeIds[i] < 0 ? { x: objs[routeIds[1]] ? objs[routeIds[1]].x : 0, z: WH_Z + ID / 2 + 0.1 } : { x: o.x, z: o.z }); }
+  for (i = 0; i < segs.length; i++) {
+    if (i < np - 1) {
+      var a = pts[i], b = pts[i + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+      L += len; cum.push(L);
+      segs[i].visible = len > 0.01;
+      segs[i].scale.set(0.14, 0.04, Math.max(len, 0.01));
+      segs[i].position.set((a.x + b.x) / 2, PATH_Y, (a.z + b.z) / 2);
+      segs[i].rotation.y = Math.atan2(dx, dz);
+    } else segs[i].visible = false;
+  }
+  var count = L > 0.1 ? Math.min(parts.length, Math.max(3, Math.ceil(L / 2.2))) : 0;
+  var t = reduce ? 0 : now / 1000, k, j;
+  for (k = 0; k < parts.length; k++) {
+    if (k >= count) { parts[k].visible = false; continue; }
+    var dist = ((t * 2.2) + k * L / count) % L;
+    j = 0;
+    while (j < cum.length - 2 && dist >= cum[j + 1]) j++;
+    var segLen = cum[j + 1] - cum[j], f = segLen > 0 ? (dist - cum[j]) / segLen : 0;
+    parts[k].visible = true;
+    parts[k].position.set(pts[j].x + (pts[j + 1].x - pts[j].x) * f, PATH_Y + 0.1, pts[j].z + (pts[j + 1].z - pts[j].z) * f);
+  }
+}
+var last = performance.now();
+function frame(now) {
+  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  var k = reduce ? 1 : 1 - Math.exp(-dt * 9);
+  var i;
+  for (i = 0; i < objs.length; i++) {
+    var o = objs[i];
+    o.x += (o.tx - o.x) * k; o.z += (o.tz - o.z) * k; o.s += (o.ts - o.s) * k;
+    var vis = o.s > 0.01, s = o.s;
+    if (o.kind !== 'ws') {
+      o.h += (o.th - o.h) * k; o.gh += (o.tgh - o.gh) * k;
+      o.plate.visible = vis; o.hit.visible = vis; o.strip.visible = vis; o.ghost.visible = vis && o.gh > 0.02;
+      var lines = linesOf(o.e), tot = 0, n2, cy = PLATE_H, fw = o.kind === 'item' ? IW : BLOCK, fd = o.kind === 'item' ? ID : BLOCK;
+      for (n2 = 0; n2 < lines.length; n2++) tot += lines[n2].qty;
+      for (n2 = 0; n2 < o.slices.length; n2++) o.slices[n2].visible = vis && n2 < lines.length && tot > 0 && lines[n2].qty > 0;
+      if (!vis) continue;
+      var bh = Math.max(0.02, o.h * s), gh = Math.max(0.02, o.gh * s);
+      o.plate.scale.set((fw + 0.08) * s, PLATE_H, (fd + 0.08) * s);
+      o.plate.position.set(o.x, PLATE_H / 2, o.z);
+      o.hit.scale.set(fw * s, H * s, fd * s); o.hit.position.set(o.x, H * s / 2, o.z);
+      for (n2 = 0; n2 < lines.length; n2++) {
+        var lh = tot > 0 ? bh * lines[n2].qty / tot : 0, sl2 = o.slices[n2];
+        sl2.scale.set(fw * 0.94 * s, Math.max(0.01, lh * 0.97), fd * 0.94 * s);
+        sl2.position.set(o.x, cy + lh / 2, o.z);
+        cy += lh;
+      }
+      o.strip.scale.set(fw * 0.9 * s, 0.12 * s, 0.05 * s);
+      o.strip.position.set(o.x, PLATE_H + 0.1 * s, o.z + fd * 0.49 * s);
+      o.ghost.scale.set(fw * 0.94 * s, gh, fd * 0.94 * s);
+      o.ghost.position.set(o.x, PLATE_H + gh / 2, o.z);
+    } else {
+      o.g.visible = vis;
+      if (!vis) continue;
+      o.g.position.set(o.x, 0, o.z); o.g.scale.set(s, s, s);
+    }
+    o.e.pulse = reduce ? 0 : Math.max(0, o.e.pulse - dt * 1.6);
+    var em = Math.max(o.e.id === hoverId ? 0.28 : 0, o.e.pulse * 0.6, o.e.id === selId ? 0.12 : 0);
+    if (o.slices) { for (var n3 = 0; n3 < o.slices.length; n3++) o.slices[n3].material.emissive.copy(accentCol).multiplyScalar(em); }
+    else o.bodyMat.emissive.copy(accentCol).multiplyScalar(em);
+  }
+  lane.x += (lane.tx - lane.x) * k; lane.z += (lane.tz - lane.z) * k; lane.w += (lane.tw - lane.w) * k; lane.d += (lane.td - lane.d) * k;
+  lane.mesh.scale.set(lane.w, 0.04, lane.d); lane.mesh.position.set(lane.x, 0.02, lane.z);
+  var fu = floor.userData;
+  fu.w += (fu.tw - fu.w) * k; fu.d += (fu.td - fu.d) * k;
+  floor.scale.set(fu.w, 0.1, fu.d); floor.position.set(0, -0.05, lane.z);
+  if (selId !== null && objs[selId].s > 0.01) {
+    var so = objs[selId];
+    ring.visible = true; ring.position.set(so.x, PLATE_H + 0.012, so.z); ring.scale.set((so.kind === 'item' ? IW + 0.4 : CELL * 0.62) * so.s, (so.kind === 'item' ? ID + 0.4 : CELL * 0.62) * so.s, 1);
+  } else ring.visible = false;
+  updateRouteMeshes(now);
+
+  orbit.dist += (orbit.gdist - orbit.dist) * k;
+  orbit.tx += (orbit.gtx - orbit.tx) * k; orbit.ty += (orbit.gty - orbit.ty) * k; orbit.tz += (orbit.gtz - orbit.tz) * k;
+  cam.position.set(
+    orbit.tx + orbit.dist * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+    orbit.ty + orbit.dist * Math.cos(orbit.phi),
+    orbit.tz + orbit.dist * Math.sin(orbit.phi) * Math.cos(orbit.theta));
+  cam.lookAt(orbit.tx, orbit.ty, orbit.tz);
+  updateLabels();
+  renderer.render(scene, cam);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- start ---------- */
+var SRC = window.__WF_SRC || 'sample', CFG = window.WF_CONFIG || {};
+$('tagSrc').textContent = SRC === 'erp' ? 'Live · ERPNext' : 'Sample data';
+$('tagSrc').title = SRC;
+function ixOfCode(c) { for (var i = 0; i < ITEMS.length; i++) if (ITEMS[i][0] === c) return i; return -1; }
+function poll() {
+  fetch(CFG.snapshotUrl || '/api/method/warehouse_floor.api.snapshot', { credentials: 'include' })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var d = j.message, fgIx = d.fg.lines.map(function (x) { return ixOfCode(x.code); });
+      var same = d.items.length === NITEM && d.ws.length === pool.length - WS0 && fgIx.indexOf(-1) < 0 && d.items.every(function (x, n) { return x.code === pool[n].name; });
+      if (!same) { location.reload(); return; }
+      d.items.forEach(function (x, n) { var e = pool[n]; e.stores = x.stores; e.wip = x.wip; e.cap = x.cap; e.qty = x.stores + x.wip; e.log = (d.log && d.log[x.code]) || e.log; });
+      var fg = pool[FG]; fg.cap = d.fg.cap; fg.lines = d.fg.lines.map(function (x, n) { return { ix: fgIx[n], qty: x.qty }; });
+      fg.qty = fg.lines.reduce(function (a, l) { return a + l.qty; }, 0); fg.log = d.fg.log || fg.log;
+      d.ws.forEach(function (w, i) { var e = pool[WS0 + i]; e.cap = w.cap; e.down = !!w.down; e.doneToday = w.doneToday; e.jobs = w.jobs; });
+      refreshValues();
+    }).catch(function () {});
+}
+if (SRC === 'erp') { $('live').parentNode.hidden = true; setInterval(poll, CFG.refreshMs || 30000); }
+applyTheme();
+relayout();
+if (renderer) {
+  onResize();
+  floor.userData.w = floor.userData.tw; floor.userData.d = floor.userData.td;
+  lane.x = lane.tx; lane.z = lane.tz; lane.w = lane.tw; lane.d = lane.td;
+  orbit.dist = orbit.gdist; orbit.tx = orbit.gtx; orbit.ty = orbit.gty; orbit.tz = orbit.gtz;
+  if (window.ResizeObserver) new ResizeObserver(onResize).observe(stage); else window.addEventListener('resize', onResize);
+  requestAnimationFrame(frame);
+}
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { setTimeout(function () { applyTheme(); renderInspector(); }, 0); });
+new MutationObserver(function () { applyTheme(); renderInspector(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+setInterval(function () { if (selId !== null) renderInspector(); }, 30000);
+}
+</script>
+<script>
+(function () {
+  var cfg = window.WF_CONFIG = window.WF_CONFIG || {}, started = false;
+  function go(d, src) { if (started) return; started = true; window.__WF_DATA = d; window.__WF_SRC = src; wfStart(); }
+  // Same-origin call: inside ERPNext the logged-in session is used. Anywhere else this fails and the sample data is shown.
+  fetch(cfg.snapshotUrl || '/api/method/warehouse_floor.api.snapshot', { credentials: 'include' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (j) { var m = j.message; if (!m || !m.items || !m.items.length) throw new Error('no stock rows'); go(m, 'erp'); })
+    .catch(function (err) { console.error(err); go(null, 'sample: ' + err.message); });
+})();
+</script>
+
+</body></html>

@@ -4,44 +4,51 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "company",
   "warehouses_section",
-  "stores_warehouse",
-  "wip_warehouse",
-  "fg_warehouse",
+  "stores_warehouses",
+  "wip_warehouses",
+  "fg_warehouses",
   "limits_section",
   "default_capacity",
   "fg_capacity",
   "column_break_1",
   "max_items",
   "max_workstations",
-  "down_statuses"
+  "down_statuses",
+  "reviewed"
  ],
  "fields": [
   {
+   "fieldname": "company",
+   "label": "Company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "description": "Optional. Set it when the site has several companies: only that company's warehouses are used and its currency is shown."
+  },
+  {
    "fieldname": "warehouses_section",
    "label": "Warehouses",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "description": "Each role can list several warehouses; their stock is added together. Leave a role empty to let the system guess from the Manufacturing Settings defaults or the warehouse name."
   },
   {
-   "fieldname": "stores_warehouse",
-   "label": "Stores warehouse",
-   "fieldtype": "Link",
-   "options": "Warehouse",
-   "description": "Raw materials. Empty = the first warehouse whose name starts with Stores."
+   "fieldname": "stores_warehouses",
+   "label": "Stores warehouses",
+   "fieldtype": "Table",
+   "options": "Warehouse Floor Warehouse"
   },
   {
-   "fieldname": "wip_warehouse",
-   "label": "Work In Progress warehouse",
-   "fieldtype": "Link",
-   "options": "Warehouse",
-   "description": "Empty = default from Manufacturing Settings."
+   "fieldname": "wip_warehouses",
+   "label": "Work In Progress warehouses",
+   "fieldtype": "Table",
+   "options": "Warehouse Floor Warehouse"
   },
   {
-   "fieldname": "fg_warehouse",
-   "label": "Finished Goods warehouse",
-   "fieldtype": "Link",
-   "options": "Warehouse",
-   "description": "Empty = default from Manufacturing Settings."
+   "fieldname": "fg_warehouses",
+   "label": "Finished Goods warehouses",
+   "fieldtype": "Table",
+   "options": "Warehouse Floor Warehouse"
   },
   {
    "fieldname": "limits_section",
@@ -85,12 +92,20 @@
    "fieldtype": "Data",
    "default": "Problem, Maintenance",
    "description": "Comma separated Workstation statuses."
+  },
+  {
+   "fieldname": "reviewed",
+   "fieldtype": "Check",
+   "label": "Reviewed",
+   "hidden": 1,
+   "read_only": 1,
+   "default": "0"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-29 00:00:00.000000",
+ "modified": "2026-10-29 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Warehouse Floor",
  "name": "Warehouse Floor Settings",

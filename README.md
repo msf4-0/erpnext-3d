@@ -20,22 +20,26 @@ With frappe_docker, add the repo to `apps.json` and rebuild the image with `--no
 
 ## Point it at your warehouses
 
-Open **Warehouse Floor Settings** in ERPNext (awesomebar, or `/app/warehouse-floor-settings`). It holds the warehouse names,
-default capacity, Finished Goods capacity, the silo and workbench limits and the "down" statuses, and has an
-**Open 3D floor** button. Values saved there win over `site_config.json`. Empty or zero fields fall back to the older
-site_config keys below, then to the defaults.
+Warehouse names differ on every site, so do this once per install. Open **Warehouse Floor Settings** in ERPNext
+(awesomebar, or `/app/warehouse-floor-settings`):
 
-The same settings can still be set from the command line:
+- **Stores, Work In Progress and Finished Goods** each take a list of warehouses, and their stock is added together.
+- **Company** is optional. Set it on sites with several companies: only that company's warehouses are used, and its
+  currency is shown.
+- Saving checks that every warehouse exists, is not a group or disabled, belongs to the company, and is used for only
+  one role.
+- Also on the page: default capacity per item, Finished Goods capacity, the silo and workbench limits and the
+  "down" statuses. The **Open 3D floor** button opens the dashboard.
 
-```bash
-bench --site your.site set-config wf_stores "Stores - ABC"
-bench --site your.site set-config wf_wip "Work In Progress - ABC"
-bench --site your.site set-config wf_fg "Finished Goods - ABC"
-```
+If a role is left empty, the system guesses: `site_config.json` (`wf_stores`, `wf_wip`, `wf_fg`, a name or a list),
+then the Manufacturing Settings defaults, then the first warehouse named "Stores%", "Work In Progress%" or
+"Finished Goods%". A guess can be wrong, so the dashboard shows a **Setup needed** banner when a warehouse is
+missing, does not exist, is a group, is shared between roles, or when the warehouses belong to several companies.
+Stores is always required. Work In Progress and Finished Goods only raise the banner until the settings page has
+been saved once, so a site without them can save the page empty.
 
-If not set, the Manufacturing Settings defaults are used, then warehouses named "Stores%",
-"Work In Progress%" and "Finished Goods%". Other keys (same fields as the settings page): `wf_default_capacity` (1000),
-`wf_fg_capacity` (5000), `wf_max_items` (10), `wf_max_workstations` (6), `wf_down_statuses`.
+Other `site_config.json` keys still work as fallbacks: `wf_default_capacity` (1000), `wf_fg_capacity` (5000),
+`wf_max_items` (10), `wf_max_workstations` (6), `wf_down_statuses`.
 
 ## Currency and language
 

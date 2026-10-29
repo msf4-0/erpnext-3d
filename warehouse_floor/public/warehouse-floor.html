@@ -44,6 +44,10 @@ h1 { font-family: var(--cond); font-weight: 600; font-size: 26px; letter-spacing
 .sub { margin: 2px 0 0; color: var(--muted); max-width: 70ch; }
 .tag { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); padding: 3px 8px; border-radius: 4px; }
 
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 4px; }
+.banner b { font-family: var(--cond); font-weight: 600; font-size: 15px; }
+.banner ul { margin: 0; padding-left: 18px; flex: 1 1 320px; color: var(--muted); }
+.banner a { color: var(--accent); white-space: nowrap; }
 .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--panel); }
 .kpi { padding: 12px 16px; border-left: 1px solid var(--line); min-width: 0; }
 .kpi:first-child { border-left: 0; }
@@ -156,6 +160,8 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
     </div>
     <span class="tag" id="tagSrc">Prototype · sample data</span>
   </header>
+
+  <div class="banner" id="banner" role="status" hidden></div>
 
   <section class="kpis" aria-label="Summary">
     <div class="kpi"><span class="k-label">Workbenches</span><span class="k-val" id="kWs">0</span><span class="k-note" id="kWsNote"></span></div>
@@ -1032,6 +1038,15 @@ function frame(now) {
 var SRC = window.__WF_SRC || 'sample', CFG = window.WF_CONFIG || {};
 $('tagSrc').textContent = SRC === 'erp' ? 'Live · ERPNext' : 'Sample data';
 $('tagSrc').title = SRC + (window.__WF_BASE ? ' · ' + window.__WF_BASE : '');
+// Setup banner: shown when the warehouses could not be resolved or something is misconfigured.
+var SU = window.__WF_SETUP;
+if (SU && SU.problems && SU.problems.length) {
+  var bn = $('banner'), bt = document.createElement('b'), ul = document.createElement('ul'), al = document.createElement('a');
+  bt.textContent = SU.title || 'Setup needed';
+  SU.problems.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+  al.href = SU.url; al.target = '_blank'; al.rel = 'noopener'; al.textContent = SU.link || 'Open Warehouse Floor Settings';
+  bn.appendChild(bt); bn.appendChild(ul); bn.appendChild(al); bn.hidden = false;
+}
 function ixOfCode(c) { for (var i = 0; i < ITEMS.length; i++) if (ITEMS[i][0] === c) return i; return -1; }
 function poll() {
   window.wfApi(CFG.snapshotUrl || '/api/method/warehouse_floor.api.snapshot')
@@ -1039,7 +1054,8 @@ function poll() {
     .then(function (j) {
       var d = j.message, fgIx = d.fg.lines.map(function (x) { return ixOfCode(x.code); });
       var same = d.items.length === NITEM && d.ws.length === NWS && d.fg.lines.length === NFG && d.fg.lines.every(function (x) { return fgByCode[x.code]; }) && d.items.every(function (x, n) { return x.code === pool[n].name; });
-      if (!same) { location.reload(); return; }
+      var hadSetup = !!(window.__WF_SETUP && window.__WF_SETUP.problems && window.__WF_SETUP.problems.length), nowBad = !!(d.setup && d.setup.problems && d.setup.problems.length);
+      if (!same || hadSetup !== nowBad) { location.reload(); return; }
       d.items.forEach(function (x, n) { var e = pool[n]; e.stores = x.stores; e.wip = x.wip; e.cap = x.cap; e.qty = x.stores + x.wip; e.log = (d.log && d.log[x.code]) || e.log; });
       var fg = pool[FG]; fg.cap = d.fg.cap; var each = d.fg.cap / Math.max(1, d.fg.lines.length); d.fg.lines.forEach(function (x) { var fe = fgByCode[x.code]; fe.qty = x.qty; fe.stores = x.qty; fe.cap = x.cap || each; fe.log = (d.log && d.log[x.code]) || fe.log; }); syncFg();
       fg.log = d.fg.log || fg.log;
@@ -1077,7 +1093,13 @@ setInterval(function () { if (selId !== null) renderInspector(); }, 30000);
     var url = /^https?:/.test(path) ? path : base + path;
     return fetch(url, token ? { headers: { Authorization: token }, credentials: 'omit' } : { credentials: 'include' });
   };
-  function go(d, src) { if (started) return; started = true; window.__WF_DATA = d; window.__WF_SRC = src; wfStart(); }
+  var setupInfo = null;
+  function go(d, src) { if (started) return; started = true; window.__WF_DATA = d; window.__WF_SRC = src; window.__WF_SETUP = setupInfo; wfStart(); }
+  // The snapshot lists anything wrong with the warehouse setup; the page shows it as a banner.
+  function setup(m) {
+    var p = m.setup && m.setup.problems;
+    if (p && p.length) setupInfo = { title: 'Setup needed', problems: p, url: base + (m.setup.settings_url || '/app/warehouse-floor-settings') };
+  }
   // The currency comes from the snapshot if it has one, otherwise from the first Company's default currency.
   function currency(m) {
     if (m.currency || cfg.currency) return Promise.resolve();
@@ -1087,9 +1109,24 @@ setInterval(function () { if (selId !== null) renderInspector(); }, 30000);
       .catch(function () {});
   }
   window.wfApi(cfg.snapshotUrl || '/api/method/warehouse_floor.api.snapshot')
-    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function (j) { var m = j.message; if (!m || !m.items || !m.items.length) throw new Error('no stock rows'); return currency(m).then(function () { go(m, 'erp'); }); })
-    .catch(function (err) { console.error(err); go(null, 'sample: ' + err.message); });
+    .then(function (r) { if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; } return r.json(); })
+    .then(function (j) {
+      var m = j.message;
+      if (!m) throw new Error('empty response');
+      setup(m);
+      if (!m.items || !m.items.length) { var e = new Error('no stock rows'); e.empty = true; throw e; }
+      return currency(m).then(function () { go(m, 'erp'); });
+    })
+    .catch(function (err) {
+      console.error(err);
+      if (err.empty) {
+        setupInfo = setupInfo || { problems: ['No stock was found in the configured warehouses.'], url: base + '/app/warehouse-floor-settings' };
+        setupInfo.title = 'Showing sample data';
+      } else if (err.status === 401 || err.status === 403) {
+        setupInfo = { title: 'Not signed in?', problems: ['ERPNext refused the request (HTTP ' + err.status + '). Log in first, or check that this user can read stock.'], url: base + '/login', link: 'Open login' };
+      }
+      go(null, 'sample: ' + err.message);
+    });
 })();
 </script>
 

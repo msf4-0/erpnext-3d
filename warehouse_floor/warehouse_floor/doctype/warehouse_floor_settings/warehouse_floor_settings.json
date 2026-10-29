@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "creation": "2026-10-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "warehouses_section",
+  "stores_warehouse",
+  "wip_warehouse",
+  "fg_warehouse",
+  "limits_section",
+  "default_capacity",
+  "fg_capacity",
+  "column_break_1",
+  "max_items",
+  "max_workstations",
+  "down_statuses"
+ ],
+ "fields": [
+  {
+   "fieldname": "warehouses_section",
+   "label": "Warehouses",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "stores_warehouse",
+   "label": "Stores warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "description": "Raw materials. Empty = the first warehouse whose name starts with Stores."
+  },
+  {
+   "fieldname": "wip_warehouse",
+   "label": "Work In Progress warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "description": "Empty = default from Manufacturing Settings."
+  },
+  {
+   "fieldname": "fg_warehouse",
+   "label": "Finished Goods warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "description": "Empty = default from Manufacturing Settings."
+  },
+  {
+   "fieldname": "limits_section",
+   "label": "Capacity and limits",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "default_capacity",
+   "label": "Default capacity per item",
+   "fieldtype": "Float",
+   "default": "1000",
+   "description": "Used for items that have no Putaway Rule."
+  },
+  {
+   "fieldname": "fg_capacity",
+   "label": "Finished Goods capacity",
+   "fieldtype": "Float",
+   "default": "5000",
+   "description": "Shared equally between Finished Goods silos unless an item has a Putaway Rule."
+  },
+  {
+   "fieldname": "column_break_1",
+   "label": "",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_items",
+   "label": "Max item silos",
+   "fieldtype": "Int",
+   "default": "10"
+  },
+  {
+   "fieldname": "max_workstations",
+   "label": "Max workbenches",
+   "fieldtype": "Int",
+   "default": "6"
+  },
+  {
+   "fieldname": "down_statuses",
+   "label": "Statuses shown as down",
+   "fieldtype": "Data",
+   "default": "Problem, Maintenance",
+   "description": "Comma separated Workstation statuses."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Warehouse Floor",
+ "name": "Warehouse Floor Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Stock Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

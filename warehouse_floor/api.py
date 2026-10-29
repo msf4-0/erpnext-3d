@@ -1,27 +1,62 @@
 """Read-only data feed for the 3D warehouse floor page.
 
-Optional settings in sites/<site>/site_config.json (all have defaults):
+Settings are read, in this order, from:
+  1. the "Warehouse Floor Settings" page in ERPNext (search the awesomebar for it),
+  2. sites/<site>/site_config.json (the older wf_* keys, still supported),
+  3. the defaults below.
+
   wf_stores, wf_wip, wf_fg          warehouse names (default: "Stores%", and the
                                     WIP / FG defaults from Manufacturing Settings)
   wf_default_capacity               per-item capacity when no Putaway Rule exists (1000)
   wf_fg_capacity                    Finished Goods capacity (5000)
-  wf_max_items, wf_max_workstations how many bars / workbenches to draw (10 / 6)
+  wf_max_items, wf_max_workstations how many silos / workbenches to draw (10 / 6)
   wf_down_statuses                  Workstation statuses drawn as "down"
 """
 import frappe
 from frappe.utils import cint, flt, get_datetime, today
 
+SETTINGS = "Warehouse Floor Settings"
+# site_config key -> field on the settings page
+FIELDS = {
+    "wf_stores": "stores_warehouse", "wf_wip": "wip_warehouse", "wf_fg": "fg_warehouse",
+    "wf_default_capacity": "default_capacity", "wf_fg_capacity": "fg_capacity",
+    "wf_max_items": "max_items", "wf_max_workstations": "max_workstations",
+    "wf_down_statuses": "down_statuses",
+}
 
-def _conf(key, default=None):
-    value = frappe.conf.get(key)
+
+def _settings():
+    try:  # the page may not exist yet (before `bench migrate`), so never fail on it
+        return frappe.db.get_singles_dict(SETTINGS) or {}
+    except Exception:
+        return {}
+
+
+def _cfg(S, key, default=None):
+    value = S.get(FIELDS[key])
+    if value in (None, "", "0", 0):
+        value = frappe.conf.get(key)
     return default if value in (None, "") else value
 
 
-def _warehouses():
+def _warehouses(S):
     ms = frappe.db.get_singles_dict("Manufacturing Settings") or {}
-    stores = _conf("wf_stores") or frappe.db.get_value(
+    stores = _cfg(S, "wf_stores") or frappe.db.get_value(
         "Warehouse", {"is_group": 0, "name": ["like", "Stores%"]}, "name")
-    return stores, _conf("wf_wip") or ms.get("default_wip_warehouse"), _conf("wf_fg") or ms.get("default_fg_warehouse")
+    return stores, _cfg(S, "wf_wip") or ms.get("default_wip_warehouse"), _cfg(S, "wf_fg") or ms.get("default_fg_warehouse")
+
+
+def _currency(*warehouses):
+    """Default currency of the company that owns the first configured warehouse."""
+    try:
+        wh = next((w for w in warehouses if w), None)
+        company = frappe.db.get_value("Warehouse", wh, "company") if wh else None
+        company = company or frappe.db.get_single_value("Global Defaults", "default_company")
+        if company:
+            return frappe.get_cached_value("Company", company, "default_currency")
+        return frappe.db.get_single_value("Global Defaults", "default_currency")
+    except Exception:
+        return None
 
 
 def _ms(row):
@@ -34,10 +69,11 @@ def _ms(row):
 @frappe.whitelist()
 def snapshot():
     frappe.has_permission("Bin", "read", throw=True)
-    stores, wip, fg = _warehouses()
+    S = _settings()
+    stores, wip, fg = _warehouses(S)
     whs = [w for w in (stores, wip, fg) if w]
-    max_items, max_ws = cint(_conf("wf_max_items", 10)), cint(_conf("wf_max_workstations", 6))
-    default_cap = max(flt(_conf("wf_default_capacity", 1000)), 1)
+    max_items, max_ws = cint(_cfg(S, "wf_max_items", 10)), cint(_cfg(S, "wf_max_workstations", 6))
+    default_cap = max(flt(_cfg(S, "wf_default_capacity", 1000)), 1)
 
     # ---- stock by item: Stores + WIP merged, Finished Goods kept separate
     by_item = {}
@@ -60,13 +96,18 @@ def snapshot():
 
     meta = {i.name: i for i in frappe.get_all("Item", filters={"name": ["in", codes]},
                                               fields=["name", "item_name", "stock_uom"])}
-    caps = {}
-    try:  # optional: Putaway Rule capacity per item
-        for r in frappe.get_all("Putaway Rule", filters={"item_code": ["in", raw], "warehouse": ["in", [stores, wip]]},
-                                fields=["item_code", "capacity"]):
-            caps[r.item_code] = caps.get(r.item_code, 0) + flt(r.capacity)
-    except Exception:
-        pass
+    # optional: Putaway Rule capacity per item. Raw items add up Stores + WIP, Finished Goods use their own warehouse.
+    caps, fg_caps = {}, {}
+    if codes and whs:
+        try:
+            for r in frappe.get_all("Putaway Rule", filters={"item_code": ["in", codes], "warehouse": ["in", whs]},
+                                    fields=["item_code", "warehouse", "capacity"]):
+                if r.warehouse == fg:
+                    fg_caps[r.item_code] = fg_caps.get(r.item_code, 0) + flt(r.capacity)
+                else:
+                    caps[r.item_code] = caps.get(r.item_code, 0) + flt(r.capacity)
+        except Exception:
+            pass
 
     def row(c):
         m = meta.get(c)
@@ -75,7 +116,12 @@ def snapshot():
 
     items = [dict(row(c), stores=by_item[c]["stores"], wip=by_item[c]["wip"],
                   cap=max(caps.get(c) or default_cap, 1)) for c in raw]
-    fg_lines = [dict(row(c), qty=by_item[c]["fg"]) for c in fgc]
+    fg_lines = []
+    for c in fgc:
+        line = dict(row(c), qty=by_item[c]["fg"])
+        if fg_caps.get(c):  # only when a rule exists; otherwise the page shares the warehouse capacity equally
+            line["cap"] = fg_caps[c]
+        fg_lines.append(line)
 
     # ---- movements from the stock ledger
     log, fg_log = {}, []
@@ -111,7 +157,8 @@ def snapshot():
             "jc": c.name, "wo": c.work_order, "op": c.operation, "qty": flt(c.for_quantity),
             "done": flt(c.total_completed_qty), "state": "run" if c.status == "Work In Progress" else "open"})
     stations.sort(key=lambda s: (s.name not in jobs, s.name))
-    down_states = _conf("wf_down_statuses", ["Problem", "Maintenance"])
+    down = _cfg(S, "wf_down_statuses", ["Problem", "Maintenance"])
+    down_states = [x.strip() for x in down.split(",") if x.strip()] if isinstance(down, str) else list(down)
     ws = [{"name": s.name, "cap": max(cint(s.production_capacity), 1),
            "op": (jobs.get(s.name) or [{"op": "Workstation"}])[0]["op"], "doneToday": done.get(s.name, 0),
            "down": bool(has_status and s.get("status") in down_states), "jobs": jobs.get(s.name, []), "log": []}
@@ -129,6 +176,9 @@ def snapshot():
         routes = [{"name": "Workstations", "label": "Workstation order",
                    "steps": [{"ws": i, "op": w["op"]} for i, w in enumerate(ws)]}]
 
-    return {"items": items, "fg": {"name": fg or "Finished Goods", "cap": flt(_conf("wf_fg_capacity", 5000)),
-                                   "lines": fg_lines, "log": fg_log},
-            "ws": ws, "routes": routes, "log": log}
+    return {"items": items, "currency": _currency(stores, fg, wip),
+            "fg": {"name": fg or "Finished Goods", "cap": flt(_cfg(S, "wf_fg_capacity", 5000)),
+                   "lines": fg_lines, "log": fg_log},
+            "ws": ws, "routes": routes, "log": log,
+            "debug": {"stores": stores, "wip": wip, "fg": fg, "bin_rows": len(by_item), "items_found": len(items),
+                      "settings_page": bool(S)}}

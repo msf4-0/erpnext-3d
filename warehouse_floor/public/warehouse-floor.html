@@ -306,8 +306,8 @@ function stateLabel(e) {
 function resolveRoute(route, pool) {
   var steps = [], broken = 0;
   route.steps.forEach(function (s) {
-    var ws = pool[WS0 + s.ws];
-    if (!ws || ws.disabled) { ws = null; broken++; }
+    var ws = s.ws >= 0 ? pool[WS0 + s.ws] : null; // ws -1 = routing step whose workstation is not drawn
+    if (!ws || ws.kind !== 'ws' || ws.disabled) { ws = null; broken++; }
     steps.push({ op: s.op, ws: ws });
   });
   return { steps: steps, broken: broken };
@@ -360,10 +360,16 @@ var curRoute = null, routeIds = [];
 var H = 3.2, ROOF_H = 0.5, PLATE_H = 0.07, PATH_Y = 0.2, MACH_TOP = 1.62, FIT_H = 6.2;
 var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 var $ = function (id) { return document.getElementById(id); };
-var nf = new Intl.NumberFormat('en-MY');
+var CFG0 = window.WF_CONFIG || {}, DATA0 = window.__WF_DATA || {};
+var CUR_CODE = CFG0.currency || DATA0.currency || window.__WF_CUR || (window.__WF_DATA ? '' : 'MYR');
+var LOC = CFG0.locale || DATA0.locale || navigator.language || 'en';
+var CUR = '';
+try { CUR = CUR_CODE ? new Intl.NumberFormat(LOC, { style: 'currency', currency: CUR_CODE, currencyDisplay: 'narrowSymbol' }).formatToParts(0).filter(function (p) { return p.type === 'currency'; })[0].value : ''; } catch (err) { CUR = CUR_CODE; }
+var CUR_P = CUR ? CUR + ' ' : '';
+var nf; try { nf = new Intl.NumberFormat(LOC); } catch (err) { nf = new Intl.NumberFormat(); }
 function active() { return pool.filter(function (e) { return !e.disabled; }); }
 function activeWs() { return pool.filter(function (e) { return e.kind === 'ws' && !e.disabled; }); }
-function rm(v) { return v >= 1e6 ? 'RM ' + (v / 1e6).toFixed(2) + ' M' : (v >= 1e3 ? 'RM ' + (v / 1e3).toFixed(1) + ' k' : 'RM ' + Math.round(v)); }
+function rm(v) { return v >= 1e6 ? CUR_P + (v / 1e6).toFixed(2) + ' M' : (v >= 1e3 ? CUR_P + (v / 1e3).toFixed(1) + ' k' : CUR_P + Math.round(v)); }
 function ago(at) { var m = Math.floor((Date.now() - at) / 60000); return m < 1 ? 'just now' : (m < 60 ? m + ' min ago' : Math.floor(m / 60) + ' h ago'); }
 function shortName(e) { return e.name.replace(' - MFG', ''); }
 function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
@@ -603,7 +609,7 @@ function stockHtml(e) {
   h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(f * 100) + '%<small>of capacity</small></div>' +
     '<div class="bar" style="margin-top:10px"><i style="width:' + Math.min(100, f * 100).toFixed(1) + '%"></i></div></div>';
   h += '<dl class="kv"><dt>On hand</dt><dd>' + nf.format(e.qty) + ' units</dd><dt>Capacity</dt><dd>' + nf.format(e.cap) + ' units</dd>' +
-    '<dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Different items</dt><dd>' + e.lines.length + '</dd></dl>';
+    '<dt>Stock value</dt><dd>' + CUR_P + nf.format(Math.round(valueOf(e))) + '</dd><dt>Different items</dt><dd>' + e.lines.length + '</dd></dl>';
   h += '<div><h3>Items in this warehouse (' + e.lines.length + ')</h3><div class="items">' + itemRows(e) + '</div></div>';
   h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
   e.log.slice(0, 4).forEach(function (m) {
@@ -641,7 +647,7 @@ function itemHtml(e) {
   var st = statusOf(e), it = ITEMS[e.ix], pS = Math.min(100, e.stores / e.cap * 100), pW = Math.min(100 - pS, e.wip / e.cap * 100);
   var h = '<div><div class="row"><h2>' + it[0] + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">' + it[1] + ' · Stores + WIP</div></div>';
   h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(e.qty / e.cap * 100) + '%<small>of item capacity</small></div><div class="bar" style="margin-top:10px;display:flex"><i style="width:' + pS.toFixed(1) + '%;background:' + itemColor(e.ix, P.dark) + '"></i><i style="width:' + pW.toFixed(1) + '%;background:' + wipColor(e.ix, P.dark) + '"></i></div></div>';
-  h += '<dl class="kv"><dt>In Stores</dt><dd>' + nf.format(e.stores) + ' ' + it[2] + '</dd><dt>In Work In Progress</dt><dd>' + nf.format(e.wip) + ' ' + it[2] + '</dd><dt>Total on hand</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Item capacity</dt><dd>' + nf.format(e.cap) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>RM ' + it[3] + '</dd></dl>';
+  h += '<dl class="kv"><dt>In Stores</dt><dd>' + nf.format(e.stores) + ' ' + it[2] + '</dd><dt>In Work In Progress</dt><dd>' + nf.format(e.wip) + ' ' + it[2] + '</dd><dt>Total on hand</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Item capacity</dt><dd>' + nf.format(e.cap) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>' + CUR_P + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>' + CUR_P + it[3] + '</dd></dl>';
   h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
   e.log.slice(0, 4).forEach(function (m) { h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + ago(m.at) + '</span></div>'; });
   return h + '</div></div><div class="route">/app/item/' + it[0] + '</div>';
@@ -658,7 +664,7 @@ function fgHtml(e) {
   var st = statusOf(e), it = ITEMS[e.ix], f = e.qty / e.cap;
   var h = '<div><div class="row"><h2>' + it[0] + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">' + it[1] + ' · ' + pool[FG].name + '</div></div>';
   h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(f * 100) + '%<small>of silo capacity</small></div><div class="bar" style="margin-top:10px"><i style="width:' + Math.min(100, f * 100).toFixed(1) + '%;background:' + itemColor(e.ix, P.dark) + '"></i></div></div>';
-  h += '<dl class="kv"><dt>In Finished Goods</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Silo capacity</dt><dd>' + nf.format(Math.round(e.cap)) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>RM ' + it[3] + '</dd></dl>';
+  h += '<dl class="kv"><dt>In Finished Goods</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Silo capacity</dt><dd>' + nf.format(Math.round(e.cap)) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>' + CUR_P + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>' + CUR_P + it[3] + '</dd></dl>';
   h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
   if (!e.log.length) h += '<p class="note">No recent movements.</p>';
   e.log.slice(0, 4).forEach(function (m) { h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + ago(m.at) + '</span></div>'; });
@@ -1025,10 +1031,10 @@ function frame(now) {
 /* ---------- start ---------- */
 var SRC = window.__WF_SRC || 'sample', CFG = window.WF_CONFIG || {};
 $('tagSrc').textContent = SRC === 'erp' ? 'Live · ERPNext' : 'Sample data';
-$('tagSrc').title = SRC;
+$('tagSrc').title = SRC + (window.__WF_BASE ? ' · ' + window.__WF_BASE : '');
 function ixOfCode(c) { for (var i = 0; i < ITEMS.length; i++) if (ITEMS[i][0] === c) return i; return -1; }
 function poll() {
-  fetch(CFG.snapshotUrl || '/api/method/warehouse_floor.api.snapshot', { credentials: 'include' })
+  window.wfApi(CFG.snapshotUrl || '/api/method/warehouse_floor.api.snapshot')
     .then(function (r) { return r.json(); })
     .then(function (j) {
       var d = j.message, fgIx = d.fg.lines.map(function (x) { return ixOfCode(x.code); });
@@ -1059,12 +1065,30 @@ setInterval(function () { if (selId !== null) renderInspector(); }, 30000);
 </script>
 <script>
 (function () {
+  // Optional settings, set in a <script> before this one:
+  //   window.WF_CONFIG = { baseUrl: 'https://erp.example.com', apiKey: '...', apiSecret: '...', currency: 'USD', locale: 'en-US', refreshMs: 30000 };
+  // Or open the page as  ...warehouse-floor.html?site=https://erp.example.com  (uses the browser's login to that site).
   var cfg = window.WF_CONFIG = window.WF_CONFIG || {}, started = false;
+  var base = String(new URLSearchParams(location.search).get('site') || cfg.baseUrl || '').replace(/\/+$/, '');
+  var token = cfg.apiKey && cfg.apiSecret ? 'token ' + cfg.apiKey + ':' + cfg.apiSecret : '';
+  window.__WF_BASE = base;
+  // All ERPNext calls go through here: same origin by default, or a remote site with a login session or an API token.
+  window.wfApi = function (path) {
+    var url = /^https?:/.test(path) ? path : base + path;
+    return fetch(url, token ? { headers: { Authorization: token }, credentials: 'omit' } : { credentials: 'include' });
+  };
   function go(d, src) { if (started) return; started = true; window.__WF_DATA = d; window.__WF_SRC = src; wfStart(); }
-  // Same-origin call: inside ERPNext the logged-in session is used. Anywhere else this fails and the sample data is shown.
-  fetch(cfg.snapshotUrl || '/api/method/warehouse_floor.api.snapshot', { credentials: 'include' })
+  // The currency comes from the snapshot if it has one, otherwise from the first Company's default currency.
+  function currency(m) {
+    if (m.currency || cfg.currency) return Promise.resolve();
+    return window.wfApi('/api/resource/Company?fields=' + encodeURIComponent('["default_currency"]') + '&limit_page_length=1')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && j.data && j.data[0]) window.__WF_CUR = j.data[0].default_currency; })
+      .catch(function () {});
+  }
+  window.wfApi(cfg.snapshotUrl || '/api/method/warehouse_floor.api.snapshot')
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function (j) { var m = j.message; if (!m || !m.items || !m.items.length) throw new Error('no stock rows'); go(m, 'erp'); })
+    .then(function (j) { var m = j.message; if (!m || !m.items || !m.items.length) throw new Error('no stock rows'); return currency(m).then(function () { go(m, 'erp'); }); })
     .catch(function (err) { console.error(err); go(null, 'sample: ' + err.message); });
 })();
 </script>

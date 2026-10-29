@@ -751,7 +751,7 @@ function pickAt(cx, cy) {
   for (var i = 0; i < objs.length; i++) {
     var o = objs[i];
     if (o.ts > 0 && o.s > 0.5) {
-      list.push(o.plate); list.push(o.hit); if (o.roof) list.push(o.roof);
+      list.push(o.plate); if (o.hit) list.push(o.hit); if (o.roof) list.push(o.roof);
       if (o.slices) { for (var q2 = 0; q2 < o.slices.length; q2++) if (o.slices[q2].visible) list.push(o.slices[q2]); }
       else { list.push(o.body); list.push(o.cab); }
     }

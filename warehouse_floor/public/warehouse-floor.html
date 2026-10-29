@@ -71,6 +71,7 @@ select { font: inherit; color: var(--fg); background: var(--panel); border: 1px 
 #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .lbl { position: absolute; left: 0; top: 0; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); padding: 1px 5px; border-radius: 3px; will-change: transform; }
 .lbl.step { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 500; }
+.lbl.grp { background: var(--fg); border-color: var(--fg); color: var(--bg); font-weight: 600; letter-spacing: .02em; }
 .lbl.on { border-color: var(--accent); }
 .tip { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; min-width: 180px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18); will-change: transform; }
 .tip b { display: block; font-family: var(--mono); font-weight: 500; }
@@ -151,7 +152,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
   <header class="top">
     <div>
       <h1>ERPNext Warehouse Floor</h1>
-      <p class="sub">Stores and Work In Progress are merged into one back row, a line of bars with one bar per item type. Two workbenches and Finished Goods sit in front, in the order a job moves through them.</p>
+      <p class="sub">The whole production lane is one horizontal line, in the order a job moves through it: Stores and Work In Progress merged into a group of silos (one per item type), then Workbench 1, Workbench 2 and a Finished Goods silo.</p>
     </div>
     <span class="tag" id="tagSrc">Prototype · sample data</span>
   </header>
@@ -177,7 +178,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
   <div class="main">
     <div class="stage-col">
       <div class="stage" id="stage">
-        <canvas id="cv" role="img" aria-label="3D view of a production line: a merged Stores and Work In Progress row with one bar per item, then Workbench 1, Workbench 2 and Finished Goods. Use the Inspect menu to choose an item with the keyboard."></canvas>
+        <canvas id="cv" role="img" aria-label="3D view of a production line: a merged Stores and Work In Progress row with one silo per item, then Workbench 1, Workbench 2 and Finished Goods. Use the Inspect menu to choose an item with the keyboard."></canvas>
         <div id="labels"></div>
         <div class="tip" id="tip" hidden></div>
         <div class="nogl" id="nogl" hidden>This browser could not start WebGL, so the 3D view cannot be drawn here. The summary and the Inspect menu still work.</div>
@@ -192,8 +193,8 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
         <span><i class="sw" style="background:var(--good)"></i>Healthy</span>
         <span><i class="sw" style="background:var(--warn)"></i>Low</span>
         <span><i class="sw" style="background:var(--bad)"></i>Over capacity</span>
-        <b>Item bar</b><span><i class="sw" style="background:var(--accent)"></i>Solid lower part: in Stores</span><span><i class="sw" style="background:var(--accent);opacity:.45"></i>Lighter top: in WIP</span>
-        <span class="hint">Finished Goods is a stack of layers, one per item. Colours match the list on the right, and selecting a warehouse labels its layers. Lights on top of a workbench are job slots, crates in front are queued job cards. Drag to rotate, Shift-drag or right-drag to pan, scroll or pinch to zoom.</span>
+        <b>Item silo</b><span><i class="sw" style="background:var(--accent)"></i>Solid lower part: in Stores</span><span><i class="sw" style="background:var(--accent);opacity:.45"></i>Lighter top: in WIP</span>
+        <span class="hint">Finished Goods is a silo filled in layers, one per item. Colours match the list on the right, and selecting a warehouse labels its layers. Lights on top of a workbench are job slots, crates in front are queued job cards. Drag to rotate, Ctrl-drag, Shift-drag or right-drag to pan, scroll or pinch to zoom.</span>
       </div>
     </div>
     <aside class="inspector" id="inspector" aria-live="polite"></aside>
@@ -239,7 +240,7 @@ if (window.__WF_DATA) {
   FG_DEF = { name: D.fg.name, cap: D.fg.cap, log: D.fg.log || [], lines: D.fg.lines.map(function (x) { return { ix: ixOf[x.code], qty: x.qty }; }) };
   BENCH_DEF = D.ws; ROUTES = D.routes; REAL_LOG = D.log || {};
 }
-var NITEM = WH_DEF.length, FG = NITEM, WS0 = NITEM + 1, CELL = 2.9, BLOCK = 1.55, LANE_PAD = 1.4, IW = 1.2, ID = 1.9, IP = 1.5, WH_Z = -2.7, FR_Z = 1.3;
+var NITEM = WH_DEF.length, FG = NITEM, WS0 = NITEM + 1, CELL = 2.9, BLOCK = 1.55, LANE_PAD = 1.4, IW = 1.3, ID = 1.3, IP = 1.5, WH_Z = 0, FR_Z = 0, GROUP_GAP = 1.2, ROUTE_Z = BLOCK * 0.5 + 0.55;
 var jcSeq = 40;
 
 function makeJob(j, op, wo) {
@@ -309,17 +310,21 @@ function routeNodes(res) {
   ids.push(FG);
   return ids;
 }
-// One straight line along the x axis, in flow order, centred on the origin.
+// One straight line along the x axis in flow order, centred on the origin:
+// item silos (Stores + WIP), a small gap, then the workbenches and Finished Goods.
 function computeLayout(active) {
   var by = function (a, b) { return a.order - b.order; };
   var items = active.filter(function (e) { return e.kind === 'item'; }).sort(by);
   var front = active.filter(function (e) { return e.kind !== 'item'; }).sort(by);
-  var pos = {}, n = items.length, m = front.length;
-  items.forEach(function (e, i) { pos[e.id] = { x: (i - (n - 1) / 2) * IP, z: WH_Z }; });
-  front.forEach(function (e, i) { pos[e.id] = { x: (i - (m - 1) / 2) * CELL, z: FR_Z }; });
-  var w = Math.max(n ? (n - 1) * IP + IW : 0, m ? (m - 1) * CELL + BLOCK : 0);
-  var zb = n ? WH_Z - ID / 2 : FR_Z - BLOCK / 2, zf = FR_Z + BLOCK / 2, d = zf - zb, cz = (zb + zf) / 2;
-  return { pos: pos, lane: { x: 0, z: cz, w: w + LANE_PAD * 2, d: d + LANE_PAD }, w: w, d: d, cz: cz };
+  var n = items.length, m = front.length, pos = {};
+  var total = n * IP + m * CELL + (n && m ? GROUP_GAP : 0);
+  var x0 = -total / 2, cur = x0;
+  items.forEach(function (e) { pos[e.id] = { x: cur + IP / 2, z: WH_Z }; cur += IP; });
+  var itemsX = n ? x0 + n * IP / 2 : 0, exitX = n ? cur - IP / 2 : x0;
+  if (n && m) cur += GROUP_GAP;
+  front.forEach(function (e) { pos[e.id] = { x: cur + CELL / 2, z: FR_Z }; cur += CELL; });
+  var d = BLOCK, cz = FR_Z;
+  return { pos: pos, lane: { x: 0, z: cz, w: total + LANE_PAD * 2, d: d + LANE_PAD }, w: total, d: d, cz: cz, itemsX: itemsX, exitX: exitX };
 }
 function fitDistance(w, d, h, fovDeg, aspect, theta, phi) {
   var fv = fovDeg * Math.PI / 180, fh = 2 * Math.atan(Math.tan(fv / 2) * aspect);
@@ -335,7 +340,7 @@ var pool = makePool();
 var showRoute = true, selId = null, hoverId = null;
 var curLayout = { pos: {}, lane: { x: 0, z: 0, w: 10, d: 4 }, w: 10, d: 2 };
 var curRoute = null, routeIds = [];
-var H = 3.2, PLATE_H = 0.07, PATH_Y = 0.2, MACH_TOP = 1.62, FIT_H = 4.8;
+var H = 3.2, ROOF_H = 0.5, PLATE_H = 0.07, PATH_Y = 0.2, MACH_TOP = 1.62, FIT_H = 6.2;
 var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 var $ = function (id) { return document.getElementById(id); };
 var nf = new Intl.NumberFormat('en-MY');
@@ -355,7 +360,7 @@ try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: t
 
 var scene, cam, objs = [], lane, floor, ring, ghostMat, plateMat, zoneMat, floorMat, accentCol, routeMat, partMat, crateMat;
 var segs = [], parts = [];
-var orbit = { theta: 0.5, phi: 0.98, dist: 20, tx: 0, ty: 0.8, tz: 0, gdist: 20, gtx: 0, gty: 0.8, gtz: 0 };
+var orbit = { theta: 0.25, phi: 0.98, dist: 20, tx: 0, ty: 0.8, tz: 0, gdist: 20, gtx: 0, gty: 0.8, gtz: 0 };
 var manualFrame = false;
 var W = 800, Ht = 500;
 
@@ -376,6 +381,20 @@ if (renderer) {
 
   var boxGeo = new THREE.BoxGeometry(1, 1, 1);
   var edgesGeo = new THREE.EdgesGeometry(boxGeo);
+  var cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 28);
+  var coneGeo = new THREE.ConeGeometry(0.5, 1, 28);
+  // Capacity outline of a silo: four rings (shell courses) joined by vertical ribs, unit size, scaled per frame.
+  var siloGeo = (function () {
+    var pos = [], N = 16, ys = [-0.5, -1 / 6, 1 / 6, 0.5], i, k, a, b;
+    for (k = 0; k < ys.length; k++) for (i = 0; i < N; i++) {
+      a = i / N * Math.PI * 2; b = (i + 1) / N * Math.PI * 2;
+      pos.push(0.5 * Math.cos(a), ys[k], 0.5 * Math.sin(a), 0.5 * Math.cos(b), ys[k], 0.5 * Math.sin(b));
+    }
+    for (i = 0; i < N; i += 2) { a = i / N * Math.PI * 2; pos.push(0.5 * Math.cos(a), -0.5, 0.5 * Math.sin(a), 0.5 * Math.cos(a), 0.5, 0.5 * Math.sin(a)); }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    return g;
+  })();
   floorMat = new THREE.MeshBasicMaterial({ color: 0xcccccc });
   zoneMat = new THREE.MeshBasicMaterial({ color: 0xbbbbbb });
   plateMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
@@ -394,20 +413,23 @@ if (renderer) {
   pool.forEach(function (e) {
     var o;
     if (e.kind !== 'ws') {
+      var silo = e.kind !== 'ws';
       var plate = mesh(boxGeo, plateMat, 1, 1, 1, 0, 0, 0);
-      var ghost = new THREE.LineSegments(edgesGeo, ghostMat);
-      var sstrip = mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x888888 }), 1, 1, 1, 0, 0, 0);
+      var ghost = new THREE.LineSegments(silo ? siloGeo : edgesGeo, ghostMat);
+      var sstrip = mesh(silo ? cylGeo : boxGeo, new THREE.MeshBasicMaterial({ color: 0x888888 }), 1, 1, 1, 0, 0, 0);
       plate.userData.id = e.id;
       plate.visible = ghost.visible = sstrip.visible = false;
       scene.add(plate); scene.add(ghost); scene.add(sstrip);
-      var hit = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+      var hit = new THREE.Mesh(silo ? cylGeo : boxGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+      var roof = null, roofMat = null;
+      if (silo) { roofMat = new THREE.MeshLambertMaterial({ color: 0x777777 }); roof = new THREE.Mesh(coneGeo, roofMat); roof.userData.id = e.id; roof.visible = false; scene.add(roof); }
       hit.userData.id = e.id; hit.visible = false; scene.add(hit);
       var slices = [];
       for (var sn = 0; sn < 6; sn++) {
-        var sl = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x888888 }));
+        var sl = new THREE.Mesh(silo ? cylGeo : boxGeo, new THREE.MeshLambertMaterial({ color: 0x888888 }));
         sl.userData.id = e.id; sl.visible = false; scene.add(sl); slices.push(sl);
       }
-      o = { kind: e.kind, e: e, plate: plate, hit: hit, slices: slices, ghost: ghost, strip: sstrip, x: 0, z: 0, tx: 0, tz: 0, h: 0.1, th: 0.1, s: 0, ts: 0, gh: 0, tgh: 0 };
+      o = { kind: e.kind, e: e, plate: plate, hit: hit, roof: roof, roofMat: roofMat, slices: slices, ghost: ghost, strip: sstrip, x: 0, z: 0, tx: 0, tz: 0, h: 0.1, th: 0.1, s: 0, ts: 0, gh: 0, tgh: 0 };
     } else {
       var g = new THREE.Group();
       var bMat = new THREE.MeshLambertMaterial({ color: 0x777777 }), cMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
@@ -455,7 +477,7 @@ function applyTheme() {
   floorMat.color.set(P.floor); zoneMat.color.set(P.zone); plateMat.color.set(P.plate);
   ghostMat.color.set(P.muted); accentCol.set(P.accent); ring.material.color.set(P.accent);
   routeMat.color.set(P.accent); partMat.color.set(P.accent); crateMat.color.set(P.crate);
-  pool.forEach(function (e) { if (e.kind === 'ws') { objs[e.id].bodyMat.color.set(P.machine); objs[e.id].cabMat.color.set(P.machine2); } });
+  pool.forEach(function (e) { if (e.kind === 'ws') { objs[e.id].bodyMat.color.set(P.machine); objs[e.id].cabMat.color.set(P.machine2); } else if (objs[e.id].roofMat) objs[e.id].roofMat.color.set(P.machine); });
   paintBodies();
 }
 function paintBodies() {
@@ -634,7 +656,7 @@ function renderInspector() {
     h += '</div></div><div class="wh"><div class="row"><h3>' + fg.name + '</h3><span class="zname">' + fg.lines.length + ' items · ' + nf.format(fg.qty) + ' units</span></div><div class="items" style="max-height:none">' + itemRows(fg) + '</div></div>';
     h += '<details><summary>Intended ERPNext mapping</summary><dl class="kv" style="margin-top:8px">' +
       '<dt>Stock point</dt><dd>Warehouse (Stores and WIP drawn as one row, Finished Goods)</dd>' +
-      '<dt>Item bar</dt><dd>Bin rows for one item: Stores solid, WIP lighter</dd>' +
+      '<dt>Item silo</dt><dd>Bin rows for one item: Stores solid, WIP lighter</dd>' +
       '<dt>Workbench</dt><dd>Workstation</dd>' +
       '<dt>Job slots</dt><dd>Workstation production capacity</dd>' +
       '<dt>Running / queued</dt><dd>Job Cards at that workstation</dd>' +
@@ -651,7 +673,7 @@ function select(id) {
 
 /* ---------- controls ---------- */
 $('showRoute').addEventListener('change', function () { showRoute = this.checked; updateRoute(); renderInspector(); });
-$('btnReset').addEventListener('click', function () { manualFrame = false; orbit.theta = 0.5; orbit.phi = 0.98; fit(); });
+$('btnReset').addEventListener('click', function () { manualFrame = false; orbit.theta = 0.25; orbit.phi = 0.98; fit(); });
 $('pick').addEventListener('change', function () { select(this.value); });
 $('inspector').addEventListener('click', function (ev) { var r = ev.target.closest && ev.target.closest('[data-sel]'); if (r) select(r.dataset.sel); });
 var liveTimer = null;
@@ -729,7 +751,7 @@ function pickAt(cx, cy) {
   for (var i = 0; i < objs.length; i++) {
     var o = objs[i];
     if (o.ts > 0 && o.s > 0.5) {
-      list.push(o.plate); list.push(o.hit);
+      list.push(o.plate); list.push(o.hit); if (o.roof) list.push(o.roof);
       if (o.slices) { for (var q2 = 0; q2 < o.slices.length; q2++) if (o.slices[q2].visible) list.push(o.slices[q2]); }
       else { list.push(o.body); list.push(o.cab); }
     }
@@ -742,7 +764,7 @@ if (renderer) {
   cv.addEventListener('pointerdown', function (ev) {
     cv.setPointerCapture(ev.pointerId); hideTip();
     ptrs[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
-    down = { x: ev.clientX, y: ev.clientY, moved: false, pan: ev.button === 2 || ev.shiftKey };
+    down = { x: ev.clientX, y: ev.clientY, moved: false, pan: ev.button === 2 || ev.shiftKey || ev.ctrlKey || ev.metaKey };
     var ids = Object.keys(ptrs);
     if (ids.length === 2) { var a = ptrs[ids[0]], b = ptrs[ids[1]]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); }
   });
@@ -758,7 +780,7 @@ if (renderer) {
       if (pinch0 > 0 && dd > 0) { orbit.gdist = Math.min(120, Math.max(5, orbit.gdist * pinch0 / dd)); manualFrame = true; }
       pinch0 = dd;
     } else if (down && down.pan) {
-      var s = orbit.dist * 0.0016;
+      var s = orbit.dist * 0.0022;
       orbit.gtx += -Math.cos(orbit.theta) * dx * s + -Math.sin(orbit.theta) * dy * s;
       orbit.gtz += Math.sin(orbit.theta) * dx * s + -Math.cos(orbit.theta) * dy * s;
       manualFrame = true;
@@ -809,15 +831,15 @@ function updateLabels() {
     var o = objs[e.id];
     if (o.ts === 0 || o.s < 0.5) return;
     var focus = e.id === selId || e.id === hoverId;
-    var el = labelEl('w' + e.id, ''); el._keep = true;
+    var el = labelEl('w' + e.id, e.kind === 'stock' ? 'grp' : ''); el._keep = true;
     el.classList.toggle('on', focus);
     var txt, y;
     if (e.kind === 'item') {
       txt = e.name;
-      y = PLATE_H + o.gh * o.s + 0.3 + (e.order % 2) * 0.55;
+      y = PLATE_H + Math.max(o.h, o.gh) * o.s + ROOF_H * o.s + 0.3 + (e.order % 2) * 0.55;
     } else if (e.kind === 'stock') {
       txt = shortName(e) + (focus ? ' · ' + Math.round(e.qty / e.cap * 100) + '%' : '');
-      y = PLATE_H + Math.max(o.h, o.gh) * o.s + 0.3;
+      y = PLATE_H + Math.max(o.h, o.gh) * o.s + 1.3;
     } else {
       txt = e.name + (focus ? ' · ' + runCount(e) + '/' + e.cap : '');
       y = (MACH_TOP + 0.35) * o.s;
@@ -831,7 +853,7 @@ function updateLabels() {
       placeLabel(el, o.x, 0.05, o.z + BLOCK * 0.95, 'Step ' + (i + 1) + ' · ' + s.op);
     });
   }
-  if (objs[0].s > 0.5) { var gl = labelEl('wh', ''); gl._keep = true; placeLabel(gl, 0, PLATE_H + H + 1.5, WH_Z, 'Stores + WIP · ' + NITEM + ' item types'); }
+  if (objs[0].s > 0.5) { var gl = labelEl('wh', 'grp'); gl._keep = true; placeLabel(gl, curLayout.itemsX || 0, PLATE_H + H + ROOF_H + 2.2, WH_Z, 'Stores + WIP · ' + NITEM + ' item types'); }
   var sel = selId === null ? null : pool[selId];
   if (sel && sel.kind === 'stock' && objs[sel.id].s > 0.5) {
     var so2 = objs[sel.id], tot2 = 0, cum2 = 0, pts2 = [];
@@ -867,7 +889,7 @@ function onResize() {
 }
 function updateRouteMeshes(now) {
   var np = routeIds.length, i, L = 0, cum = [0], pts = [];
-  for (i = 0; i < np; i++) { var o = objs[routeIds[i]]; pts.push(routeIds[i] < 0 ? { x: objs[routeIds[1]] ? objs[routeIds[1]].x : 0, z: WH_Z + ID / 2 + 0.1 } : { x: o.x, z: o.z }); }
+  for (i = 0; i < np; i++) { var o = objs[routeIds[i]]; pts.push(routeIds[i] < 0 ? { x: curLayout.exitX || 0, z: ROUTE_Z } : { x: o.x, z: ROUTE_Z }); }
   for (i = 0; i < segs.length; i++) {
     if (i < np - 1) {
       var a = pts[i], b = pts[i + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
@@ -901,7 +923,7 @@ function frame(now) {
     var vis = o.s > 0.01, s = o.s;
     if (o.kind !== 'ws') {
       o.h += (o.th - o.h) * k; o.gh += (o.tgh - o.gh) * k;
-      o.plate.visible = vis; o.hit.visible = vis; o.strip.visible = vis; o.ghost.visible = vis && o.gh > 0.02;
+      o.plate.visible = vis; o.hit.visible = vis; o.strip.visible = vis; if (o.roof) o.roof.visible = vis; o.ghost.visible = vis && o.gh > 0.02;
       var lines = linesOf(o.e), tot = 0, n2, cy = PLATE_H, fw = o.kind === 'item' ? IW : BLOCK, fd = o.kind === 'item' ? ID : BLOCK;
       for (n2 = 0; n2 < lines.length; n2++) tot += lines[n2].qty;
       for (n2 = 0; n2 < o.slices.length; n2++) o.slices[n2].visible = vis && n2 < lines.length && tot > 0 && lines[n2].qty > 0;
@@ -916,10 +938,19 @@ function frame(now) {
         sl2.position.set(o.x, cy + lh / 2, o.z);
         cy += lh;
       }
-      o.strip.scale.set(fw * 0.9 * s, 0.12 * s, 0.05 * s);
-      o.strip.position.set(o.x, PLATE_H + 0.1 * s, o.z + fd * 0.49 * s);
+      if (o.kind !== 'ws') {
+        o.strip.scale.set(fw * 0.98 * s, 0.12 * s, fd * 0.98 * s);
+        o.strip.position.set(o.x, PLATE_H + 0.1 * s, o.z);
+      } else {
+        o.strip.scale.set(fw * 0.9 * s, 0.12 * s, 0.05 * s);
+        o.strip.position.set(o.x, PLATE_H + 0.1 * s, o.z + fd * 0.49 * s);
+      }
       o.ghost.scale.set(fw * 0.94 * s, gh, fd * 0.94 * s);
       o.ghost.position.set(o.x, PLATE_H + gh / 2, o.z);
+      if (o.roof) { // roof sits on the capacity line and rides up if the silo is over capacity
+        o.roof.scale.set(fw * 1.02 * s, ROOF_H * s, fd * 1.02 * s);
+        o.roof.position.set(o.x, PLATE_H + Math.max(bh, gh) + ROOF_H * s / 2, o.z);
+      }
     } else {
       o.g.visible = vis;
       if (!vis) continue;
@@ -927,7 +958,7 @@ function frame(now) {
     }
     o.e.pulse = reduce ? 0 : Math.max(0, o.e.pulse - dt * 1.6);
     var em = Math.max(o.e.id === hoverId ? 0.28 : 0, o.e.pulse * 0.6, o.e.id === selId ? 0.12 : 0);
-    if (o.slices) { for (var n3 = 0; n3 < o.slices.length; n3++) o.slices[n3].material.emissive.copy(accentCol).multiplyScalar(em); }
+    if (o.slices) { for (var n3 = 0; n3 < o.slices.length; n3++) o.slices[n3].material.emissive.copy(accentCol).multiplyScalar(em); if (o.roof) o.roof.material.emissive.copy(accentCol).multiplyScalar(em); }
     else o.bodyMat.emissive.copy(accentCol).multiplyScalar(em);
   }
   lane.x += (lane.tx - lane.x) * k; lane.z += (lane.tz - lane.z) * k; lane.w += (lane.tw - lane.w) * k; lane.d += (lane.td - lane.d) * k;

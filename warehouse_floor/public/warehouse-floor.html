@@ -152,7 +152,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
   <header class="top">
     <div>
       <h1>ERPNext Warehouse Floor</h1>
-      <p class="sub">The whole production lane is one horizontal line, in the order a job moves through it: Stores and Work In Progress merged into a group of silos (one per item type), then Workbench 1, Workbench 2 and a Finished Goods silo.</p>
+      <p class="sub">The whole production lane is one horizontal line, in the order a job moves through it: Stores and Work In Progress merged into a group of silos (one per item type), then Workbench 1, Workbench 2 and one Finished Goods silo per item.</p>
     </div>
     <span class="tag" id="tagSrc">Prototype · sample data</span>
   </header>
@@ -194,7 +194,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing:
         <span><i class="sw" style="background:var(--warn)"></i>Low</span>
         <span><i class="sw" style="background:var(--bad)"></i>Over capacity</span>
         <b>Item silo</b><span><i class="sw" style="background:var(--accent)"></i>Solid lower part: in Stores</span><span><i class="sw" style="background:var(--accent);opacity:.45"></i>Lighter top: in WIP</span>
-        <span class="hint">Finished Goods is a silo filled in layers, one per item. Colours match the list on the right, and selecting a warehouse labels its layers. Lights on top of a workbench are job slots, crates in front are queued job cards. Drag to rotate, Ctrl-drag, Shift-drag or right-drag to pan, scroll or pinch to zoom.</span>
+        <span class="hint">Finished Goods has one silo per item, each filled to its share of the warehouse capacity. Colours match the list on the right. Lights on top of a workbench are job slots, crates in front are queued job cards. Drag to rotate, Ctrl-drag, Shift-drag or right-drag to pan, scroll or pinch to zoom.</span>
       </div>
     </div>
     <aside class="inspector" id="inspector" aria-live="polite"></aside>
@@ -237,10 +237,11 @@ if (window.__WF_DATA) {
   ITEMS = [];
   D.items.concat(D.fg.lines).forEach(function (x) { if (!(x.code in ixOf)) { ixOf[x.code] = ITEMS.length; ITEMS.push([x.code, x.name, x.uom, x.rate]); } });
   WH_DEF = D.items.map(function (x) { return [ixOf[x.code], x.stores, x.wip, x.cap]; });
-  FG_DEF = { name: D.fg.name, cap: D.fg.cap, log: D.fg.log || [], lines: D.fg.lines.map(function (x) { return { ix: ixOf[x.code], qty: x.qty }; }) };
+  FG_DEF = { name: D.fg.name, cap: D.fg.cap, log: D.fg.log || [], lines: D.fg.lines.map(function (x) { return { ix: ixOf[x.code], qty: x.qty, cap: x.cap }; }) };
   BENCH_DEF = D.ws; ROUTES = D.routes; REAL_LOG = D.log || {};
 }
 var NITEM = WH_DEF.length, FG = NITEM, WS0 = NITEM + 1, CELL = 2.9, BLOCK = 1.55, LANE_PAD = 1.4, IW = 1.3, ID = 1.3, IP = 1.5, WH_Z = 0, FR_Z = 0, GROUP_GAP = 1.2, ROUTE_Z = BLOCK * 0.5 + 0.55;
+var NWS = BENCH_DEF.length, NFG = (FG_DEF.lines || FG_DEF.picks).length, FG0 = WS0 + NWS;
 var jcSeq = 40;
 
 function makeJob(j, op, wo) {
@@ -264,11 +265,18 @@ function makePool() {
       jobs: b.jobs.map(function (j, n) { return makeJob(j, b.op, wo + n); }), down: !!b.down, doneToday: b.doneToday, disabled: false,
       log: b.log || [{ t: 'Job Card completed', d: 60 + i * 20, at: Date.now() - 22 * 60000 }, { t: 'Job Card started', d: 200 - i * 50, at: Date.now() - 75 * 60000 }], pulse: 0 });
   });
+  // One silo per Finished Goods item. Capacity: the item's own if the data has one, else an equal share of the warehouse.
+  var fgLog = arr[FG].log, fgEach = FG_DEF.cap / Math.max(1, lines.length);
+  lines.slice().sort(function (a, b) { return ITEMS[a.ix][0] < ITEMS[b.ix][0] ? -1 : 1; }).forEach(function (l, i) {
+    var code = ITEMS[l.ix][0];
+    arr.push({ id: arr.length, kind: 'fgitem', ix: l.ix, name: code, order: 50 + i, cap: l.cap || fgEach, stores: l.qty, wip: 0, qty: l.qty, disabled: false, pulse: 0,
+      log: (REAL_LOG && REAL_LOG[code]) || fgLog.filter(function (m) { return m.item === code; }) });
+  });
   return arr;
 }
 function runCount(e) { var c = 0; for (var i = 0; i < e.jobs.length; i++) if (e.jobs[i].state === 'run') c++; return c; }
 function queuedCount(e) { return e.jobs.length - runCount(e); }
-function linesOf(e) { return e.kind === 'item' ? [{ ix: e.ix, qty: e.stores }, { ix: e.ix, qty: e.wip }] : e.lines; }
+function linesOf(e) { return e.kind === 'item' ? [{ ix: e.ix, qty: e.stores }, { ix: e.ix, qty: e.wip }] : (e.kind === 'fgitem' ? [{ ix: e.ix, qty: e.qty }] : e.lines); }
 function valueOf(e) {
   var v = 0, L = linesOf(e);
   for (var i = 0; i < L.length; i++) v += L[i].qty * ITEMS[L[i].ix][3];
@@ -307,24 +315,26 @@ function resolveRoute(route, pool) {
 function routeNodes(res) {
   var ids = [-1]; // -1 = exit point of the Stores + WIP row
   res.steps.forEach(function (s) { if (s.ws) ids.push(s.ws.id); });
-  ids.push(FG);
+  if (curLayout.fgX !== null && curLayout.fgX !== undefined) ids.push(-2); // -2 = centre of the Finished Goods silos
   return ids;
 }
 // One straight line along the x axis in flow order, centred on the origin:
-// item silos (Stores + WIP), a small gap, then the workbenches and Finished Goods.
+// item silos (Stores + WIP), the workbenches, then one Finished Goods silo per item, with a gap between groups.
 function computeLayout(active) {
   var by = function (a, b) { return a.order - b.order; };
   var items = active.filter(function (e) { return e.kind === 'item'; }).sort(by);
-  var front = active.filter(function (e) { return e.kind !== 'item'; }).sort(by);
-  var n = items.length, m = front.length, pos = {};
-  var total = n * IP + m * CELL + (n && m ? GROUP_GAP : 0);
-  var x0 = -total / 2, cur = x0;
-  items.forEach(function (e) { pos[e.id] = { x: cur + IP / 2, z: WH_Z }; cur += IP; });
-  var itemsX = n ? x0 + n * IP / 2 : 0, exitX = n ? cur - IP / 2 : x0;
-  if (n && m) cur += GROUP_GAP;
-  front.forEach(function (e) { pos[e.id] = { x: cur + CELL / 2, z: FR_Z }; cur += CELL; });
+  var wss = active.filter(function (e) { return e.kind === 'ws'; }).sort(by);
+  var fgs = active.filter(function (e) { return e.kind === 'fgitem'; }).sort(by);
+  var n = items.length, m = wss.length, k = fgs.length, pos = {};
+  var groups = (n ? 1 : 0) + (m ? 1 : 0) + (k ? 1 : 0);
+  var total = n * IP + m * CELL + k * IP + Math.max(0, groups - 1) * GROUP_GAP;
+  var x0 = -total / 2, cur = x0, first = true, itemsX = 0, exitX = x0, fgX = null, st;
+  function gap() { if (!first) cur += GROUP_GAP; first = false; }
+  if (n) { gap(); st = cur; items.forEach(function (e) { pos[e.id] = { x: cur + IP / 2, z: WH_Z }; cur += IP; }); itemsX = (st + cur) / 2; exitX = cur - IP / 2; }
+  if (m) { gap(); wss.forEach(function (e) { pos[e.id] = { x: cur + CELL / 2, z: FR_Z }; cur += CELL; }); }
+  if (k) { gap(); st = cur; fgs.forEach(function (e) { pos[e.id] = { x: cur + IP / 2, z: WH_Z }; cur += IP; }); fgX = (st + cur) / 2; }
   var d = BLOCK, cz = FR_Z;
-  return { pos: pos, lane: { x: 0, z: cz, w: total + LANE_PAD * 2, d: d + LANE_PAD }, w: total, d: d, cz: cz, itemsX: itemsX, exitX: exitX };
+  return { pos: pos, lane: { x: 0, z: cz, w: total + LANE_PAD * 2, d: d + LANE_PAD }, w: total, d: d, cz: cz, itemsX: itemsX, exitX: exitX, fgX: fgX };
 }
 function fitDistance(w, d, h, fovDeg, aspect, theta, phi) {
   var fv = fovDeg * Math.PI / 180, fh = 2 * Math.atan(Math.tan(fv / 2) * aspect);
@@ -337,6 +347,13 @@ function fitDistance(w, d, h, fovDeg, aspect, theta, phi) {
 
 /* ---------- state ---------- */
 var pool = makePool();
+function syncFg() {
+  var fg = pool[FG];
+  fg.lines = pool.filter(function (e) { return e.kind === 'fgitem'; }).map(function (e) { return { ix: e.ix, qty: e.qty }; });
+  fg.qty = fg.lines.reduce(function (a, l) { return a + l.qty; }, 0);
+}
+var fgByCode = {};
+pool.forEach(function (e) { if (e.kind === 'fgitem') fgByCode[e.name] = e; });
 var showRoute = true, selId = null, hoverId = null;
 var curLayout = { pos: {}, lane: { x: 0, z: 0, w: 10, d: 4 }, w: 10, d: 2 };
 var curRoute = null, routeIds = [];
@@ -531,7 +548,7 @@ function refreshKpis() {
 function refreshPicker() {
   var sel = $('pick'), keep = selId === null ? '' : String(selId);
   var html = '<option value="">Choose item</option>';
-  active().slice().sort(function (a, b) { return a.order - b.order; }).forEach(function (e) {
+  active().filter(function (e) { return e.kind !== 'stock'; }).sort(function (a, b) { return a.order - b.order; }).forEach(function (e) {
     html += '<option value="' + e.id + '">' + e.name + '</option>';
   });
   sel.innerHTML = html; sel.value = keep;
@@ -551,6 +568,7 @@ function relayout() {
   if (renderer) {
     act.forEach(function (e) {
       var o = objs[e.id], p = curLayout.pos[e.id];
+      if (!p) { o.ts = 0; return; }
       o.tx = p.x; o.tz = p.z; o.ts = 1;
       if (o.s < 0.02) { o.x = p.x; o.z = p.z; }
     });
@@ -628,6 +646,24 @@ function itemHtml(e) {
   e.log.slice(0, 4).forEach(function (m) { h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + ago(m.at) + '</span></div>'; });
   return h + '</div></div><div class="route">/app/item/' + it[0] + '</div>';
 }
+function fgRows() {
+  var h = '';
+  pool.filter(function (e) { return e.kind === 'fgitem'; }).sort(function (a, b) { return b.qty - a.qty; }).forEach(function (e) {
+    var it = ITEMS[e.ix];
+    h += '<div class="it" data-sel="' + e.id + '"><i class="sw" style="background:' + itemColor(e.ix, P.dark) + '"></i><span class="code">' + it[0] + '</span><span class="q">' + nf.format(e.qty) + ' ' + it[2] + '</span><span class="nm">' + it[1] + '</span><span class="v">' + Math.round(e.qty / e.cap * 100) + '% full</span></div>';
+  });
+  return h;
+}
+function fgHtml(e) {
+  var st = statusOf(e), it = ITEMS[e.ix], f = e.qty / e.cap;
+  var h = '<div><div class="row"><h2>' + it[0] + '</h2><span class="pill ' + st + '">' + stateLabel(e) + '</span></div><div class="zname">' + it[1] + ' · ' + pool[FG].name + '</div></div>';
+  h += '<div style="--c:var(--' + st + ')"><div class="big">' + Math.round(f * 100) + '%<small>of silo capacity</small></div><div class="bar" style="margin-top:10px"><i style="width:' + Math.min(100, f * 100).toFixed(1) + '%;background:' + itemColor(e.ix, P.dark) + '"></i></div></div>';
+  h += '<dl class="kv"><dt>In Finished Goods</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Silo capacity</dt><dd>' + nf.format(Math.round(e.cap)) + ' ' + it[2] + '</dd><dt>Stock value</dt><dd>RM ' + nf.format(Math.round(valueOf(e))) + '</dd><dt>Unit cost</dt><dd>RM ' + it[3] + '</dd></dl>';
+  h += '<div><h3>Recent movements</h3><div style="margin-top:6px">';
+  if (!e.log.length) h += '<p class="note">No recent movements.</p>';
+  e.log.slice(0, 4).forEach(function (m) { h += '<div class="mv"><span class="t">' + m.t + '</span><span class="d ' + (m.d > 0 ? 'p' : 'm') + '">' + (m.d > 0 ? '+' : '') + nf.format(m.d) + '</span><span class="a">' + ago(m.at) + '</span></div>'; });
+  return h + '</div></div><div class="route">/app/item/' + it[0] + '</div>';
+}
 function routeHtml() {
   if (!curRoute) return '';
   var rt = ROUTES[0], h = '<div><h3>Routing ' + rt.name + ' · ' + rt.label + '</h3><div class="steps">';
@@ -653,16 +689,16 @@ function renderInspector() {
       var it = ITEMS[e.ix];
       h += '<div class="it" data-sel="' + e.id + '"><i class="sw" style="background:' + itemColor(e.ix, P.dark) + '"></i><span class="code">' + it[0] + '</span><span class="q">' + nf.format(e.qty) + ' ' + it[2] + '</span><span class="nm">Stores ' + nf.format(e.stores) + ' · WIP ' + nf.format(e.wip) + '</span><span class="v">' + Math.round(e.qty / e.cap * 100) + '% full</span></div>';
     });
-    h += '</div></div><div class="wh"><div class="row"><h3>' + fg.name + '</h3><span class="zname">' + fg.lines.length + ' items · ' + nf.format(fg.qty) + ' units</span></div><div class="items" style="max-height:none">' + itemRows(fg) + '</div></div>';
+    h += '</div></div><div class="wh"><div class="row"><h3>' + fg.name + '</h3><span class="zname">' + fg.lines.length + ' items · ' + nf.format(fg.qty) + ' units</span></div><div class="items" style="max-height:none">' + fgRows() + '</div></div>';
     h += '<details><summary>Intended ERPNext mapping</summary><dl class="kv" style="margin-top:8px">' +
       '<dt>Stock point</dt><dd>Warehouse (Stores and WIP drawn as one row, Finished Goods)</dd>' +
       '<dt>Item silo</dt><dd>Bin rows for one item: Stores solid, WIP lighter</dd>' +
-      '<dt>Workbench</dt><dd>Workstation</dd>' +
+      '<dt>Finished Goods silo</dt><dd>Bin row for one item in the Finished Goods warehouse</dd><dt>Workbench</dt><dd>Workstation</dd>' +
       '<dt>Job slots</dt><dd>Workstation production capacity</dd>' +
       '<dt>Running / queued</dt><dd>Job Cards at that workstation</dd>' +
       '<dt>Path</dt><dd>Routing operations in sequence order</dd></dl>' +
       '<p class="note" style="margin-top:8px">This page uses generated sample data. The mapping is the plan for ERPNext V16.</p></details>';
-  } else h = e.kind === 'stock' ? stockHtml(e) : (e.kind === 'item' ? itemHtml(e) : wsHtml(e));
+  } else h = e.kind === 'fgitem' ? fgHtml(e) : (e.kind === 'stock' ? stockHtml(e) : (e.kind === 'item' ? itemHtml(e) : wsHtml(e)));
   box.innerHTML = h + routeHtml();
 }
 function select(id) {
@@ -685,7 +721,7 @@ function logWs(m, t, d) { m.log.unshift({ t: t, d: d, at: Date.now() }); m.log.l
 function liveTick() {
   var ws = activeWs(), r = Math.random();
   if (r < 0.3 || !ws.length) {
-    var s = pool[Math.floor(Math.random() * (NITEM + 1))], cap = s.cap, mag, d;
+    var s = pickOne(pool.filter(function (e) { return e.kind === 'item' || e.kind === 'fgitem'; })), cap = s.cap, mag, d;
     if (s.kind === 'item') {
       var x = Math.random(), now = Date.now();
       mag = Math.max(10, Math.round((0.04 + Math.random() * 0.1) * cap / 10) * 10);
@@ -694,13 +730,13 @@ function liveTick() {
       else if (s.wip > 0) { mag = Math.min(mag, s.wip); s.wip -= mag; s.log.unshift({ t: 'Manufacture', d: -mag, at: now }); }
       s.qty = s.stores + s.wip;
     } else {
-      var ln = pickOne(s.lines);
-      mag = Math.max(10, Math.round((0.03 + Math.random() * 0.12) * ln.qty / 10) * 10);
+      mag = Math.max(10, Math.round((0.03 + Math.random() * 0.12) * cap / 10) * 10);
       d = Math.random() < 0.55 ? mag : -mag;
-      if (ln.qty + d < 0) d = mag;
-      if (s.qty + d > cap * 1.12) d = -Math.min(mag, ln.qty);
-      ln.qty += d; s.qty += d;
-      s.log.unshift({ t: pickOne(d > 0 ? MOVE_IN : MOVE_OUT), d: d, at: Date.now(), item: ITEMS[ln.ix][0] });
+      if (s.qty + d < 0) d = mag;
+      if (s.qty + d > cap * 1.12) d = -Math.min(mag, s.qty);
+      s.qty += d; s.stores = s.qty;
+      s.log.unshift({ t: pickOne(d > 0 ? MOVE_IN : MOVE_OUT), d: d, at: Date.now() });
+      syncFg();
     }
     s.log.length = Math.min(s.log.length, 8);
     s.pulse = 1;
@@ -736,9 +772,10 @@ var tip = $('tip');
 function hideTip() { tip.hidden = true; }
 function showTip(cx, cy) {
   var e = hoverId === null ? null : pool[hoverId];
-  if (!e || e.kind !== 'item') { tip.hidden = true; return; }
+  if (!e || e.kind === 'ws' || e.kind === 'stock') { tip.hidden = true; return; }
   var it = ITEMS[e.ix], r = stage.getBoundingClientRect();
   tip.innerHTML = '<b>' + it[0] + '</b><span>' + it[1] + '</span><dl><dt>Stores</dt><dd>' + nf.format(e.stores) + ' ' + it[2] + '</dd><dt>Work In Progress</dt><dd>' + nf.format(e.wip) + ' ' + it[2] + '</dd><dt>Total</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + ' · ' + Math.round(e.qty / e.cap * 100) + '%</dd></dl>';
+  if (e.kind === 'fgitem') tip.innerHTML = '<b>' + it[0] + '</b><span>' + it[1] + ' · Finished Goods</span><dl><dt>In stock</dt><dd>' + nf.format(e.qty) + ' ' + it[2] + '</dd><dt>Silo capacity</dt><dd>' + nf.format(Math.round(e.cap)) + ' · ' + Math.round(e.qty / e.cap * 100) + '%</dd></dl>';
   tip.hidden = false;
   var x = Math.min(cx - r.left + 14, r.width - tip.offsetWidth - 6), y = Math.min(cy - r.top + 14, r.height - tip.offsetHeight - 6);
   tip.style.transform = 'translate(' + Math.max(6, x) + 'px,' + Math.max(6, y) + 'px)';
@@ -834,7 +871,7 @@ function updateLabels() {
     var el = labelEl('w' + e.id, e.kind === 'stock' ? 'grp' : ''); el._keep = true;
     el.classList.toggle('on', focus);
     var txt, y;
-    if (e.kind === 'item') {
+    if (e.kind === 'item' || e.kind === 'fgitem') {
       txt = e.name;
       y = PLATE_H + Math.max(o.h, o.gh) * o.s + ROOF_H * o.s + 0.3 + (e.order % 2) * 0.55;
     } else if (e.kind === 'stock') {
@@ -854,6 +891,7 @@ function updateLabels() {
     });
   }
   if (objs[0].s > 0.5) { var gl = labelEl('wh', 'grp'); gl._keep = true; placeLabel(gl, curLayout.itemsX || 0, PLATE_H + H + ROOF_H + 2.2, WH_Z, 'Stores + WIP · ' + NITEM + ' item types'); }
+  if (NFG && curLayout.fgX != null && objs[FG0].s > 0.5) { var gf = labelEl('fgh', 'grp'); gf._keep = true; placeLabel(gf, curLayout.fgX, PLATE_H + H + ROOF_H + 2.2, WH_Z, 'Finished Goods · ' + NFG + ' item types'); }
   var sel = selId === null ? null : pool[selId];
   if (sel && sel.kind === 'stock' && objs[sel.id].s > 0.5) {
     var so2 = objs[sel.id], tot2 = 0, cum2 = 0, pts2 = [];
@@ -889,7 +927,7 @@ function onResize() {
 }
 function updateRouteMeshes(now) {
   var np = routeIds.length, i, L = 0, cum = [0], pts = [];
-  for (i = 0; i < np; i++) { var o = objs[routeIds[i]]; pts.push(routeIds[i] < 0 ? { x: curLayout.exitX || 0, z: ROUTE_Z } : { x: o.x, z: ROUTE_Z }); }
+  for (i = 0; i < np; i++) { var o = objs[routeIds[i]]; pts.push(routeIds[i] === -1 ? { x: curLayout.exitX || 0, z: ROUTE_Z } : (routeIds[i] === -2 ? { x: curLayout.fgX, z: ROUTE_Z } : { x: o.x, z: ROUTE_Z })); }
   for (i = 0; i < segs.length; i++) {
     if (i < np - 1) {
       var a = pts[i], b = pts[i + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
@@ -924,7 +962,7 @@ function frame(now) {
     if (o.kind !== 'ws') {
       o.h += (o.th - o.h) * k; o.gh += (o.tgh - o.gh) * k;
       o.plate.visible = vis; o.hit.visible = vis; o.strip.visible = vis; if (o.roof) o.roof.visible = vis; o.ghost.visible = vis && o.gh > 0.02;
-      var lines = linesOf(o.e), tot = 0, n2, cy = PLATE_H, fw = o.kind === 'item' ? IW : BLOCK, fd = o.kind === 'item' ? ID : BLOCK;
+      var lines = linesOf(o.e), tot = 0, n2, cy = PLATE_H, fw = o.kind !== 'stock' ? IW : BLOCK, fd = o.kind !== 'stock' ? ID : BLOCK;
       for (n2 = 0; n2 < lines.length; n2++) tot += lines[n2].qty;
       for (n2 = 0; n2 < o.slices.length; n2++) o.slices[n2].visible = vis && n2 < lines.length && tot > 0 && lines[n2].qty > 0;
       if (!vis) continue;
@@ -968,7 +1006,7 @@ function frame(now) {
   floor.scale.set(fu.w, 0.1, fu.d); floor.position.set(0, -0.05, lane.z);
   if (selId !== null && objs[selId].s > 0.01) {
     var so = objs[selId];
-    ring.visible = true; ring.position.set(so.x, PLATE_H + 0.012, so.z); ring.scale.set((so.kind === 'item' ? IW + 0.4 : CELL * 0.62) * so.s, (so.kind === 'item' ? ID + 0.4 : CELL * 0.62) * so.s, 1);
+    ring.visible = true; ring.position.set(so.x, PLATE_H + 0.012, so.z); ring.scale.set((so.kind !== 'ws' ? IW + 0.4 : CELL * 0.62) * so.s, (so.kind !== 'ws' ? ID + 0.4 : CELL * 0.62) * so.s, 1);
   } else ring.visible = false;
   updateRouteMeshes(now);
 
@@ -994,11 +1032,11 @@ function poll() {
     .then(function (r) { return r.json(); })
     .then(function (j) {
       var d = j.message, fgIx = d.fg.lines.map(function (x) { return ixOfCode(x.code); });
-      var same = d.items.length === NITEM && d.ws.length === pool.length - WS0 && fgIx.indexOf(-1) < 0 && d.items.every(function (x, n) { return x.code === pool[n].name; });
+      var same = d.items.length === NITEM && d.ws.length === NWS && d.fg.lines.length === NFG && d.fg.lines.every(function (x) { return fgByCode[x.code]; }) && d.items.every(function (x, n) { return x.code === pool[n].name; });
       if (!same) { location.reload(); return; }
       d.items.forEach(function (x, n) { var e = pool[n]; e.stores = x.stores; e.wip = x.wip; e.cap = x.cap; e.qty = x.stores + x.wip; e.log = (d.log && d.log[x.code]) || e.log; });
-      var fg = pool[FG]; fg.cap = d.fg.cap; fg.lines = d.fg.lines.map(function (x, n) { return { ix: fgIx[n], qty: x.qty }; });
-      fg.qty = fg.lines.reduce(function (a, l) { return a + l.qty; }, 0); fg.log = d.fg.log || fg.log;
+      var fg = pool[FG]; fg.cap = d.fg.cap; var each = d.fg.cap / Math.max(1, d.fg.lines.length); d.fg.lines.forEach(function (x) { var fe = fgByCode[x.code]; fe.qty = x.qty; fe.stores = x.qty; fe.cap = x.cap || each; fe.log = (d.log && d.log[x.code]) || fe.log; }); syncFg();
+      fg.log = d.fg.log || fg.log;
       d.ws.forEach(function (w, i) { var e = pool[WS0 + i]; e.cap = w.cap; e.down = !!w.down; e.doneToday = w.doneToday; e.jobs = w.jobs; });
       refreshValues();
     }).catch(function () {});
